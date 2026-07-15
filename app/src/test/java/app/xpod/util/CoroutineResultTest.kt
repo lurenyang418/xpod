@@ -6,12 +6,13 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class CoroutineResultTest {
-    @Test fun rethrowsCancellation() = runTest {
-        try {
-            runCatchingCancellable { throw CancellationException("cancelled") }
-            fail("CancellationException should be rethrown")
-        } catch (_: CancellationException) {
-            // Expected: cancellation must retain structured-concurrency semantics.
-        }
+  @Test
+  fun rethrowsCancellation() = runTest {
+    try {
+      runCatchingCancellable { throw CancellationException("cancelled") }
+      fail("CancellationException should be rethrown")
+    } catch (_: CancellationException) {
+      // Expected: cancellation must retain structured-concurrency semantics.
     }
+  }
 }
