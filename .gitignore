@@ -6,6 +6,8 @@ build/
 local.properties
 .DS_Store
 .claude/
+keystore/
+keystore.properties
 *.apk
 *.aab
 temp/
