@@ -32,6 +32,7 @@ import app.xpod.util.runCatchingCancellable
 
 data class MainUiState(
     val podcasts: List<PodcastEntity> = emptyList(),
+    val newEpisodeCounts: Map<String, Int> = emptyMap(),
     val selectedPodcastId: String? = null,
     val episodes: List<EpisodeEntity> = emptyList(),
     val libraryEpisodes: List<EpisodeEntity> = emptyList(),
@@ -50,7 +51,14 @@ class MainViewModel @Inject constructor(
     private val status = MutableStateFlow<String?>(null)
     private val episodes = selected.flatMapLatest { id -> if (id == null) kotlinx.coroutines.flow.flowOf(emptyList()) else podcasts.episodes(id) }
     val state: StateFlow<MainUiState> = combine(podcasts.podcasts(), selected, episodes, podcasts.allEpisodes(), status) { all, id, items, library, message ->
-        MainUiState(all, id, items, library, message)
+        MainUiState(
+            podcasts = all,
+            newEpisodeCounts = library.filter { it.isNew }.groupingBy { it.podcastId }.eachCount(),
+            selectedPodcastId = id,
+            episodes = items,
+            libraryEpisodes = library,
+            status = message,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState())
     val dynamicColor = settings.useDynamicColor.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
     val appTheme = settings.appTheme.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThemeMode.System)
@@ -63,7 +71,10 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch { settings.useWifiOnlyDownloads.collect { downloads.setWifiOnly(it) } }
     }
 
-    fun selectPodcast(id: String?) { selected.value = id }
+    fun selectPodcast(id: String?) {
+        selected.value = id
+        if (id != null) viewModelScope.launch { podcasts.markPodcastSeen(id) }
+    }
     fun removePodcast(id: String) = viewModelScope.launch {
         podcasts.remove(id)
         if (selected.value == id) selected.value = null
@@ -104,8 +115,24 @@ class MainViewModel @Inject constructor(
         downloads.remove(episodeId)
         status.value = context.getString(R.string.download_removed)
     }
-    fun play(episode: EpisodeEntity) = viewModelScope.launch { runCatchingCancellable { player.play(episode) }.onFailure { status.value = context.getString(R.string.could_not_start_playback) } }
-    fun playQueueItem(episodeId: String) = viewModelScope.launch { runCatchingCancellable { player.playQueueItem(episodeId) }.onFailure { status.value = context.getString(R.string.could_not_start_playback) } }
+    fun play(episode: EpisodeEntity) = viewModelScope.launch {
+        val result = runCatchingCancellable { player.play(episode) }
+        if (result.isFailure) {
+            status.value = context.getString(R.string.could_not_start_playback)
+        } else {
+            runCatchingCancellable { podcasts.recordPlayback(episode.id) }
+                .onFailure { Log.w("XPOD", "Unable to record playback", it) }
+        }
+    }
+    fun playQueueItem(episodeId: String) = viewModelScope.launch {
+        val result = runCatchingCancellable { player.playQueueItem(episodeId) }
+        if (result.isFailure) {
+            status.value = context.getString(R.string.could_not_start_playback)
+        } else {
+            runCatchingCancellable { podcasts.recordPlayback(episodeId) }
+                .onFailure { Log.w("XPOD", "Unable to record playback", it) }
+        }
+    }
     fun togglePlayback() = viewModelScope.launch { runCatchingCancellable { player.toggle() }.onFailure { status.value = context.getString(R.string.could_not_control_playback) } }
     fun seekTo(positionMs: Long) = viewModelScope.launch { runCatchingCancellable { player.seekTo(positionMs) }.onFailure { status.value = context.getString(R.string.could_not_seek_playback) } }
     fun seekBy(deltaMs: Long) = viewModelScope.launch { runCatchingCancellable { player.seekBy(deltaMs) }.onFailure { status.value = context.getString(R.string.could_not_seek_playback) } }

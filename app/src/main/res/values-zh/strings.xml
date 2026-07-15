@@ -26,6 +26,9 @@
     <string name="import_opml">导入 OPML</string>
     <string name="export_opml">导出 OPML</string>
     <string name="all">全部</string>
+    <string name="continue_listening">继续收听</string>
+    <string name="recent">最近播放</string>
+    <string name="new_episodes_count">%1$d 个新单集</string>
     <string name="unplayed">未播放</string>
     <string name="favorites">收藏</string>
     <string name="appearance">外观</string>
@@ -55,6 +58,7 @@
     <string name="waiting_for_download">等待下载开始</string>
     <string name="downloaded_size">已下载 %1$s</string>
     <string name="downloads">下载</string>
+    <string name="download_tasks">下载任务</string>
     <string name="wifi_only_downloads">仅 Wi-Fi 下载</string>
     <string name="wifi_only_downloads_summary">关闭后允许使用蜂窝网络下载</string>
     <string name="downloaded">已下载</string>

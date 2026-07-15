@@ -118,7 +118,9 @@ class PlaybackService : MediaLibraryService() {
 
     private suspend fun persist(snapshot: PlaybackSnapshot) {
         playbackRepository.save(snapshot.episodeId, snapshot.positionMs, snapshot.speed)
-        if (snapshot.episodeId != null && snapshot.durationMs > 0 && snapshot.positionMs.toDouble() / snapshot.durationMs >= 0.9) database.episodes().setPlayed(snapshot.episodeId, true)
+        if (snapshot.episodeId != null && snapshot.durationMs > 0 && snapshot.positionMs.toDouble() / snapshot.durationMs >= 0.9) {
+            playbackRepository.markEpisodePlayed(snapshot.episodeId)
+        }
     }
 
     private suspend fun persistSafely(snapshot: PlaybackSnapshot) {

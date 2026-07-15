@@ -24,6 +24,9 @@ interface EpisodeDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertAll(episodes: List<EpisodeEntity>)
     @Query("UPDATE EpisodeEntity SET isPlayed = :played WHERE id = :id") suspend fun setPlayed(id: String, played: Boolean)
     @Query("UPDATE EpisodeEntity SET isFavorite = NOT isFavorite WHERE id = :id") suspend fun toggleFavorite(id: String)
+    @Query("UPDATE EpisodeEntity SET isNew = 0 WHERE podcastId = :podcastId") suspend fun markPodcastSeen(podcastId: String)
+    @Query("UPDATE EpisodeEntity SET lastPlayedEpochMs = :lastPlayedEpochMs WHERE id = :id") suspend fun recordPlayback(id: String, lastPlayedEpochMs: Long)
+    @Query("UPDATE EpisodeEntity SET isPlayed = 1, lastPlayedEpochMs = :lastPlayedEpochMs WHERE id = :id AND isPlayed = 0") suspend fun markEpisodePlayed(id: String, lastPlayedEpochMs: Long): Int
 }
 
 @Dao

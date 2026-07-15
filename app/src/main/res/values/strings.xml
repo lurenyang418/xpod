@@ -26,6 +26,9 @@
     <string name="import_opml">Import OPML</string>
     <string name="export_opml">Export OPML</string>
     <string name="all">All</string>
+    <string name="continue_listening">Continue</string>
+    <string name="recent">Recent</string>
+    <string name="new_episodes_count">%1$d new</string>
     <string name="unplayed">Unplayed</string>
     <string name="favorites">Favorites</string>
     <string name="appearance">Appearance</string>
@@ -55,6 +58,7 @@
     <string name="waiting_for_download">Waiting to start download</string>
     <string name="downloaded_size">Downloaded %1$s</string>
     <string name="downloads">Downloads</string>
+    <string name="download_tasks">Download tasks</string>
     <string name="wifi_only_downloads">Download on Wi-Fi only</string>
     <string name="wifi_only_downloads_summary">Turn off to allow mobile data downloads</string>
     <string name="downloaded">Downloaded</string>

@@ -40,6 +40,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.TimeUnit
 import app.xpod.util.runCatchingCancellable
 
 private val Context.settingsStore by preferencesDataStore("settings")
@@ -66,15 +72,16 @@ class PodcastRepository @Inject constructor(
             .header("User-Agent", "XPOD/1.0 (Android podcast client)")
             .header("Accept", "application/rss+xml, application/xml, text/xml, */*")
             .build()
-        client.newCall(request).execute().use { response ->
+        client.newCall(request).apply { timeout().timeout(FEED_REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS) }.execute().use { response ->
             if (!response.isSuccessful) throw FeedHttpException(response.code)
             val body = requireNotNull(response.body)
             require(body.contentLength() <= MAX_FEED_BYTES || body.contentLength() == -1L) { "Feed exceeds the 10 MiB limit" }
             val bytes = body.byteStream().use { readBytesAtMost(it, MAX_FEED_BYTES) }
             val parsed = parser.parse(ByteArrayInputStream(bytes))
             val podcastId = parser.id(feedUrl)
-            val existingEpisodes = database.episodes().allForPodcast(podcastId).associateBy { it.stableKey }
             database.withTransaction {
+                val isExistingSubscription = database.podcasts().find(podcastId) != null
+                val existingEpisodes = database.episodes().allForPodcast(podcastId).associateBy { it.stableKey }
                 database.podcasts().upsert(
                     PodcastEntity(podcastId, feedUrl, parsed.title, parsed.author, parsed.description, parsed.artworkUrl, clock.millis(), null),
                 )
@@ -92,6 +99,8 @@ class PodcastRepository @Inject constructor(
                         artworkUrl = episode.artworkUrl,
                         isPlayed = existing?.isPlayed ?: false,
                         isFavorite = existing?.isFavorite ?: false,
+                        isNew = existing?.isNew ?: isExistingSubscription,
+                        lastPlayedEpochMs = existing?.lastPlayedEpochMs ?: 0,
                     )
                 })
             }
@@ -102,8 +111,27 @@ class PodcastRepository @Inject constructor(
         database.episodes().allForPodcast(podcastId).forEach { downloads.remove(it.id) }
         database.podcasts().delete(podcastId)
     }
+    suspend fun refreshAll(): FeedRefreshResult = coroutineScope {
+        val feeds = withContext(Dispatchers.IO) { database.podcasts().all() }
+        val concurrency = Semaphore(MAX_CONCURRENT_REFRESHES)
+        val failures = feeds.map { podcast ->
+            async { concurrency.withPermit { addOrRefresh(podcast.feedUrl).exceptionOrNull() } }
+        }.awaitAll().filterNotNull()
+        FeedRefreshResult(
+            shouldRetry = failures.any { error ->
+                when (error) {
+                    is FeedHttpException -> error.statusCode >= 500
+                    is IOException -> true
+                    else -> false
+                }
+            },
+        )
+    }
+
     suspend fun toggleFavorite(episodeId: String) = database.episodes().toggleFavorite(episodeId)
     suspend fun setPlayed(episodeId: String, played: Boolean) = database.episodes().setPlayed(episodeId, played)
+    suspend fun markPodcastSeen(podcastId: String) = database.episodes().markPodcastSeen(podcastId)
+    suspend fun recordPlayback(episodeId: String) = database.episodes().recordPlayback(episodeId, clock.millis())
 
     suspend fun importOpml(input: InputStream): Result<Int> = withContext(Dispatchers.IO) { runCatchingCancellable {
         val urls = OpmlCodec.read(input)
@@ -114,10 +142,16 @@ class PodcastRepository @Inject constructor(
 
     suspend fun exportOpml(output: OutputStream) = OpmlCodec.write(output, database.podcasts().all())
 
-    private companion object { const val MAX_FEED_BYTES = 10 * 1024 * 1024 }
+    private companion object {
+        const val MAX_FEED_BYTES = 10 * 1024 * 1024
+        const val MAX_CONCURRENT_REFRESHES = 4
+        const val FEED_REQUEST_TIMEOUT_SECONDS = 25L
+    }
 }
 
 class FeedHttpException(val statusCode: Int) : IOException("Feed request failed: HTTP $statusCode")
+
+data class FeedRefreshResult(val shouldRetry: Boolean)
 
 @Singleton
 class PlaybackRepository @Inject constructor(private val database: XpodDatabase, private val clock: Clock) {
@@ -125,6 +159,7 @@ class PlaybackRepository @Inject constructor(private val database: XpodDatabase,
         database.playback().save(PlaybackStateEntity(episodeId = episodeId, positionMs = positionMs, speed = speed, updatedAtEpochMs = clock.millis()))
     }
     suspend fun state(): PlaybackStateEntity? = database.playback().current()
+    suspend fun markEpisodePlayed(episodeId: String) = database.episodes().markEpisodePlayed(episodeId, clock.millis())
     suspend fun replaceQueue(episodeIds: List<String>) = database.withTransaction {
         database.playback().clearQueue()
         database.playback().insertQueue(episodeIds.distinct().mapIndexed { index, id -> QueueItemEntity(id, index) })

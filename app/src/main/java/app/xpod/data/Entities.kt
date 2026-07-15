@@ -33,6 +33,8 @@ data class EpisodeEntity(
     val artworkUrl: String?,
     val isPlayed: Boolean = false,
     val isFavorite: Boolean = false,
+    val isNew: Boolean = false,
+    val lastPlayedEpochMs: Long = 0,
 )
 
 @Entity

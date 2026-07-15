@@ -2,6 +2,8 @@ package app.xpod.di
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import app.xpod.data.XpodDatabase
 import dagger.Module
 import dagger.Provides
@@ -20,7 +22,9 @@ object AppModule {
     fun clock(): Clock = Clock.systemUTC()
 
     @Provides @Singleton
-    fun database(@ApplicationContext context: Context): XpodDatabase = Room.databaseBuilder(context, XpodDatabase::class.java, "xpod.db").build()
+    fun database(@ApplicationContext context: Context): XpodDatabase = Room.databaseBuilder(context, XpodDatabase::class.java, "xpod.db")
+        .addMigrations(MIGRATION_1_2)
+        .build()
 
     @Provides @Singleton
     fun httpClient(): OkHttpClient = OkHttpClient.Builder()
@@ -29,4 +33,11 @@ object AppModule {
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
+
+    private val MIGRATION_1_2 = object : Migration(1, 2) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE EpisodeEntity ADD COLUMN isNew INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE EpisodeEntity ADD COLUMN lastPlayedEpochMs INTEGER NOT NULL DEFAULT 0")
+        }
+    }
 }
