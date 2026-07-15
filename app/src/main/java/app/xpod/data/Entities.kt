@@ -18,7 +18,8 @@ data class PodcastEntity(
 )
 
 @Entity(
-    foreignKeys = [ForeignKey(PodcastEntity::class, ["id"], ["podcastId"], onDelete = ForeignKey.CASCADE)],
+    foreignKeys =
+        [ForeignKey(PodcastEntity::class, ["id"], ["podcastId"], onDelete = ForeignKey.CASCADE)],
     indices = [Index("podcastId"), Index(value = ["podcastId", "stableKey"], unique = true)],
 )
 data class EpisodeEntity(

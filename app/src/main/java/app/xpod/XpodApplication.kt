@@ -6,8 +6,8 @@ import dagger.hilt.android.HiltAndroidApp
 
 @HiltAndroidApp
 class XpodApplication : Application() {
-    override fun onCreate() {
-        super.onCreate()
-        FeedRefreshScheduler.schedule(this)
-    }
+  override fun onCreate() {
+    super.onCreate()
+    FeedRefreshScheduler.schedule(this)
+  }
 }
