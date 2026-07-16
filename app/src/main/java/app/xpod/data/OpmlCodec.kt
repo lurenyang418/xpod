@@ -11,28 +11,37 @@ object OpmlCodec {
     val urls = linkedSetOf<String>()
     while (parser.next() != XmlPullParser.END_DOCUMENT) {
       if (parser.eventType == XmlPullParser.START_TAG && parser.name.equals("outline", true)) {
-        parser
-            .getAttributeValue(null, "xmlUrl")
-            ?.trim()
-            ?.takeIf { it.startsWith("https://") }
-            ?.let(urls::add)
+        parser.getAttributeValue(null, "xmlUrl")?.trim()?.takeIf { it.isNotEmpty() }?.let(urls::add)
       }
     }
     return urls.toList()
   }
 
-  fun write(output: OutputStream, podcasts: List<PodcastEntity>) {
+  fun write(
+      output: OutputStream,
+      podcasts: List<PodcastEntity>,
+      articleFeeds: List<ArticleFeedEntity> = emptyList(),
+  ) {
     fun escape(value: String) =
         value.replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;")
     val content = buildString {
       append(
-          "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"2.0\"><head><title>XPOD subscriptions</title></head><body>\n")
+          "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"2.0\"><head><title>XPOD subscriptions</title></head><body>\n"
+      )
       podcasts.forEach {
         append("<outline text=\"")
             .append(escape(it.title))
             .append("\" type=\"rss\" xmlUrl=\"")
             .append(escape(it.feedUrl))
             .append("\"/>\n")
+      }
+      articleFeeds.forEach {
+        append("<outline text=\"")
+            .append(escape(it.title))
+            .append("\" type=\"rss\" xmlUrl=\"")
+            .append(escape(it.feedUrl))
+            .append("\"/>")
+            .append('\n')
       }
       append("</body></opml>\n")
     }

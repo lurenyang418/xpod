@@ -1,8 +1,23 @@
 <resources>
     <string name="app_name">XPOD</string>
     <string name="subscriptions">订阅</string>
-    <string name="add">添加</string>
+    <string name="podcasts">播客</string>
     <string name="library">资料库</string>
+    <string name="reader">阅读</string>
+    <string name="article">文章</string>
+    <string name="all_feeds">全部订阅源</string>
+    <string name="unread">未读</string>
+    <string name="mark_read">标记为已读</string>
+    <string name="mark_unread">标记为未读</string>
+    <string name="no_reader_subscriptions">还没有文章订阅</string>
+    <string name="no_articles_match">没有符合当前筛选条件的文章</string>
+    <string name="no_article_content">此订阅源未提供文章正文。</string>
+    <string name="refresh_articles">刷新文章</string>
+    <string name="article_feeds_refreshed">文章已刷新</string>
+    <string name="open_original">打开原文</string>
+    <string name="back_to_reader">返回阅读列表</string>
+    <string name="open_in_browser">在浏览器中打开</string>
+    <string name="open_embedded_content">打开嵌入内容</string>
     <string name="settings">设置</string>
     <string name="now_playing">正在播放</string>
     <string name="episode">单集</string>
@@ -28,7 +43,9 @@
     <string name="all">全部</string>
     <string name="continue_listening">继续收听</string>
     <string name="recent">最近播放</string>
-    <string name="new_episodes_count">%1$d 个新单集</string>
+    <plurals name="new_episodes_count">
+        <item quantity="other">%1$d 个新单集</item>
+    </plurals>
     <string name="unplayed">未播放</string>
     <string name="favorites">收藏</string>
     <string name="appearance">外观</string>
@@ -43,6 +60,7 @@
     <string name="could_not_add_feed_reason">无法添加订阅源：%1$s</string>
     <string name="feed_error_network">网络连接失败</string>
     <string name="feed_error_http">服务器返回 HTTP %1$d</string>
+    <string name="feed_error_https_required">仅支持 HTTPS 订阅地址</string>
     <string name="feed_error_format">订阅源格式无效或不受支持</string>
     <string name="could_not_refresh_feed">无法刷新订阅源</string>
     <string name="could_not_download">无法下载单集</string>
@@ -65,6 +83,7 @@
     <string name="remove_subscription">删除订阅</string>
     <string name="remove_subscription_title">删除订阅？</string>
     <string name="remove_subscription_message">该订阅的单集和播放记录将从此设备中移除。</string>
+    <string name="remove_article_subscription_message">该订阅的文章、已读状态和收藏记录将从此设备中移除。</string>
     <string name="remove">删除</string>
     <string name="cancel">取消</string>
     <string name="subscription_removed">订阅已删除</string>
@@ -87,6 +106,14 @@
     <string name="could_not_control_playback">无法控制播放</string>
     <string name="could_not_seek_playback">无法跳转播放进度</string>
     <string name="could_not_change_speed">无法更改播放速度</string>
-    <string name="imported_subscriptions">已导入 %1$d 个订阅</string>
+    <plurals name="imported_subscriptions">
+        <item quantity="other">已导入 %1$d 个订阅</item>
+    </plurals>
+    <plurals name="imported_subscriptions_with_failures">
+        <item quantity="other">已导入 %1$d/%2$d 个订阅（%3$d 个失败）</item>
+    </plurals>
+    <plurals name="imported_subscriptions_with_insecure_failures">
+        <item quantity="other">已导入 %1$d/%2$d 个订阅（%3$d 个失败，其中 %4$d 个非 HTTPS 地址被拒绝）</item>
+    </plurals>
     <string name="subscriptions_exported">订阅已导出</string>
 </resources>

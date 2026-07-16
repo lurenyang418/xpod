@@ -39,14 +39,14 @@ data class NowPlaying(
 
 data class PlaybackQueue(
     val episodes: List<EpisodeEntity> = emptyList(),
-    val currentEpisodeId: String? = null
+    val currentEpisodeId: String? = null,
 )
 
 @Singleton
 class PlaybackController
 @Inject
 constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val playbackRepository: PlaybackRepository,
     private val podcasts: PodcastRepository,
     private val settings: SettingsRepository,
@@ -95,7 +95,7 @@ constructor(
 
                               override fun onMediaItemTransition(
                                   mediaItem: MediaItem?,
-                                  reason: Int
+                                  reason: Int,
                               ) {
                                 val episode =
                                     _queue.value.episodes.firstOrNull {
@@ -105,15 +105,18 @@ constructor(
                                     NowPlaying(
                                         episode,
                                         isPlaying = created.isPlaying,
-                                        speed = created.playbackParameters.speed)
+                                        speed = created.playbackParameters.speed,
+                                    )
                                 _queue.value = _queue.value.copy(currentEpisodeId = episode.id)
                               }
-                            })
+                            }
+                        )
                         if (continuation.isActive) continuation.resume(created)
                       }
                       .onFailure { if (continuation.isActive) continuation.cancel(it) }
                 },
-                ContextCompat.getMainExecutor(context))
+                ContextCompat.getMainExecutor(context),
+            )
             continuation.invokeOnCancellation { future.cancel(true) }
           }
 
@@ -217,20 +220,21 @@ constructor(
 
   private fun startProgressUpdates() {
     progressJob?.cancel()
-    progressJob =
-        scope.launch {
-          while (isActive) {
-            controller?.let(::updateProgress)
-            delay(500)
-          }
-        }
+    progressJob = scope.launch {
+      while (isActive) {
+        controller?.let(::updateProgress)
+        delay(500)
+      }
+    }
   }
 
   private fun updateProgress(player: MediaController) {
     val duration = player.duration.takeIf { it > 0L } ?: 0L
     _nowPlaying.value =
         _nowPlaying.value?.copy(
-            positionMs = player.currentPosition.coerceAtLeast(0L), durationMs = duration)
+            positionMs = player.currentPosition.coerceAtLeast(0L),
+            durationMs = duration,
+        )
   }
 
   private suspend fun insertIntoQueue(episode: EpisodeEntity, requestedIndex: Int) {
@@ -268,6 +272,7 @@ constructor(
                   .setTitle(episode.title)
                   .setArtist(episode.description)
                   .setArtworkUri(episode.artworkUrl?.let(android.net.Uri::parse))
-                  .build())
+                  .build()
+          )
           .build()
 }

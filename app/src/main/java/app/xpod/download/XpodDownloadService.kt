@@ -14,7 +14,7 @@ import androidx.media3.exoplayer.scheduler.Requirements
 import app.xpod.R
 import java.io.File
 
-@UnstableApi
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 object DownloadComponent {
   private var cache: SimpleCache? = null
   private var manager: DownloadManager? = null
@@ -43,7 +43,8 @@ object DownloadComponent {
                 requirements =
                     Requirements(
                         if (DownloadPreferences.useWifiOnly(context)) Requirements.NETWORK_UNMETERED
-                        else Requirements.NETWORK)
+                        else Requirements.NETWORK
+                    )
                 maxParallelDownloads = 3
               }
               .also { manager = it }
@@ -55,7 +56,7 @@ object DownloadComponent {
   }
 }
 
-@UnstableApi
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class XpodDownloadService :
     DownloadService(
         FOREGROUND_NOTIFICATION_ID,
@@ -70,12 +71,18 @@ class XpodDownloadService :
 
   override fun getForegroundNotification(
       downloads: MutableList<Download>,
-      notMetRequirements: Int
+      notMetRequirements: Int,
   ): Notification =
       androidx.media3.exoplayer.offline
           .DownloadNotificationHelper(this, CHANNEL_ID)
           .buildProgressNotification(
-              this, R.drawable.ic_stat_download, null, null, downloads, notMetRequirements)
+              this,
+              R.drawable.ic_stat_download,
+              null,
+              null,
+              downloads,
+              notMetRequirements,
+          )
 
   private companion object {
     const val CHANNEL_ID = "downloads"

@@ -48,75 +48,78 @@ internal fun QueueSheet(
     onOpenEpisode: (EpisodeEntity) -> Unit,
     onPlay: (String) -> Unit,
     onMove: (Int, Int) -> Unit,
-    onRemove: (String) -> Unit
+    onRemove: (String) -> Unit,
 ) =
     ModalBottomSheet(onDismissRequest = onDismiss) {
       Column(
           Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-          verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+          Text(
+              stringResource(R.string.queue),
+              Modifier.weight(1f),
+              style = MaterialTheme.typography.titleLarge,
+          )
+          IconButton(onClick = onClear, enabled = queue.episodes.isNotEmpty()) {
+            Icon(Icons.Filled.Delete, stringResource(R.string.clear_queue))
+          }
+        }
+        LazyColumn(
+            Modifier.heightIn(max = 360.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+          itemsIndexed(queue.episodes, key = { _, episode -> episode.id }) { index, episode ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+              Artwork(episode.artworkUrl, null, Modifier.size(44.dp))
               Text(
-                  stringResource(R.string.queue),
-                  Modifier.weight(1f),
-                  style = MaterialTheme.typography.titleLarge)
-              IconButton(onClick = onClear, enabled = queue.episodes.isNotEmpty()) {
-                Icon(Icons.Filled.Delete, stringResource(R.string.clear_queue))
+                  episode.title,
+                  Modifier.weight(1f)
+                      .clickable { onOpenEpisode(episode) }
+                      .padding(horizontal = 12.dp),
+                  maxLines = 2,
+                  overflow = TextOverflow.Ellipsis,
+              )
+              IconButton(onClick = { onPlay(episode.id) }) {
+                Icon(Icons.Filled.PlayArrow, stringResource(R.string.play))
+              }
+              var menuExpanded by remember { mutableStateOf(false) }
+              Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                  Icon(Icons.Filled.MoreVert, stringResource(R.string.queue))
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                ) {
+                  DropdownMenuItem(
+                      text = { Text(stringResource(R.string.move_up)) },
+                      onClick = {
+                        onMove(index, index - 1)
+                        menuExpanded = false
+                      },
+                      enabled = index > 0,
+                  )
+                  DropdownMenuItem(
+                      text = { Text(stringResource(R.string.move_down)) },
+                      onClick = {
+                        onMove(index, index + 1)
+                        menuExpanded = false
+                      },
+                      enabled = index < queue.episodes.lastIndex,
+                  )
+                  DropdownMenuItem(
+                      text = { Text(stringResource(R.string.remove_from_queue)) },
+                      onClick = {
+                        onRemove(episode.id)
+                        menuExpanded = false
+                      },
+                  )
+                }
               }
             }
-            LazyColumn(
-                Modifier.heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                  itemsIndexed(queue.episodes, key = { _, episode -> episode.id }) { index, episode
-                    ->
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                      Artwork(episode.artworkUrl, null, Modifier.size(44.dp))
-                      Text(
-                          episode.title,
-                          Modifier.weight(1f)
-                              .clickable { onOpenEpisode(episode) }
-                              .padding(horizontal = 12.dp),
-                          maxLines = 2,
-                          overflow = TextOverflow.Ellipsis,
-                      )
-                      IconButton(onClick = { onPlay(episode.id) }) {
-                        Icon(Icons.Filled.PlayArrow, stringResource(R.string.play))
-                      }
-                      var menuExpanded by remember { mutableStateOf(false) }
-                      Box {
-                        IconButton(onClick = { menuExpanded = true }) {
-                          Icon(Icons.Filled.MoreVert, stringResource(R.string.queue))
-                        }
-                        DropdownMenu(
-                            expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false },
-                        ) {
-                          DropdownMenuItem(
-                              text = { Text(stringResource(R.string.move_up)) },
-                              onClick = {
-                                onMove(index, index - 1)
-                                menuExpanded = false
-                              },
-                              enabled = index > 0,
-                          )
-                          DropdownMenuItem(
-                              text = { Text(stringResource(R.string.move_down)) },
-                              onClick = {
-                                onMove(index, index + 1)
-                                menuExpanded = false
-                              },
-                              enabled = index < queue.episodes.lastIndex,
-                          )
-                          DropdownMenuItem(
-                              text = { Text(stringResource(R.string.remove_from_queue)) },
-                              onClick = {
-                                onRemove(episode.id)
-                                menuExpanded = false
-                              },
-                          )
-                        }
-                      }
-                    }
-                  }
-                }
-            Spacer(Modifier.height(12.dp))
           }
+        }
+        Spacer(Modifier.height(12.dp))
+      }
     }

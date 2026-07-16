@@ -38,6 +38,37 @@ data class EpisodeEntity(
     val lastPlayedEpochMs: Long = 0,
 )
 
+@Entity(indices = [Index(value = ["feedUrl"], unique = true)])
+data class ArticleFeedEntity(
+    @PrimaryKey val id: String,
+    val feedUrl: String,
+    val title: String,
+    val author: String,
+    val description: String,
+    val artworkUrl: String?,
+    val lastRefreshEpochMs: Long = 0,
+    val lastError: String? = null,
+)
+
+@Entity(
+    foreignKeys =
+        [ForeignKey(ArticleFeedEntity::class, ["id"], ["feedId"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index("feedId"), Index(value = ["feedId", "stableKey"], unique = true)],
+)
+data class ArticleEntity(
+    @PrimaryKey val id: String,
+    val feedId: String,
+    val stableKey: String,
+    val title: String,
+    val author: String,
+    val content: String,
+    val url: String?,
+    val publishedEpochMs: Long,
+    val artworkUrl: String?,
+    val isRead: Boolean = false,
+    val isFavorite: Boolean = false,
+)
+
 @Entity
 data class PlaybackStateEntity(
     @PrimaryKey val key: String = "active",

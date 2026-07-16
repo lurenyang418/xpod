@@ -47,70 +47,78 @@ internal fun SettingsScreen(
     showQueue: () -> Unit,
     add: (String, () -> Unit) -> Unit,
     importOpml: (Uri) -> Unit,
-    exportOpml: (Uri) -> Unit
+    exportOpml: (Uri) -> Unit,
 ) =
     LazyColumn(
-        Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-          item {
-            Text(stringResource(R.string.settings), style = MaterialTheme.typography.headlineSmall)
-          }
-          item { SettingsSectionHeader(stringResource(R.string.appearance)) }
-          item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-              Text(stringResource(R.string.theme), style = MaterialTheme.typography.titleSmall)
-              Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ThemeMode.entries.forEach { option ->
-                  FilterChip(
-                      selected = theme == option,
-                      onClick = { setTheme(option) },
-                      label = { Text(themeLabel(option)) })
-                }
-              }
+        Modifier.fillMaxSize().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+      item {
+        Text(stringResource(R.string.settings), style = MaterialTheme.typography.headlineSmall)
+      }
+      item { SettingsSectionHeader(stringResource(R.string.appearance)) }
+      item {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          Text(stringResource(R.string.theme), style = MaterialTheme.typography.titleSmall)
+          Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ThemeMode.entries.forEach { option ->
+              FilterChip(
+                  selected = theme == option,
+                  onClick = { setTheme(option) },
+                  label = { Text(themeLabel(option)) },
+              )
             }
           }
-          item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-              Column(Modifier.weight(1f)) {
-                Text(
-                    stringResource(R.string.dynamic_color),
-                    style = MaterialTheme.typography.titleSmall)
-                Text(
-                    stringResource(R.string.dynamic_color_summary),
-                    style = MaterialTheme.typography.bodyMedium)
-              }
-              Switch(checked = dynamicColor, onCheckedChange = setDynamicColor)
-            }
-          }
-          item { SettingsSectionHeader(stringResource(R.string.downloads)) }
-          item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-              Column(Modifier.weight(1f)) {
-                Text(
-                    stringResource(R.string.wifi_only_downloads),
-                    style = MaterialTheme.typography.titleSmall)
-                Text(
-                    stringResource(R.string.wifi_only_downloads_summary),
-                    style = MaterialTheme.typography.bodyMedium)
-              }
-              Switch(checked = wifiOnlyDownloads, onCheckedChange = setWifiOnlyDownloads)
-            }
-          }
-          item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-              Text(
-                  stringResource(R.string.queue),
-                  Modifier.weight(1f),
-                  style = MaterialTheme.typography.titleSmall)
-              IconButton(onClick = showQueue) {
-                Icon(Icons.AutoMirrored.Filled.QueueMusic, stringResource(R.string.queue))
-              }
-            }
-          }
-          item { SettingsSectionHeader(stringResource(R.string.subscriptions)) }
-          item { AddSubscriptionSection(add) }
-          item { SettingsSectionHeader(stringResource(R.string.opml)) }
-          item { OpmlSection(importOpml, exportOpml) }
         }
+      }
+      item {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+          Column(Modifier.weight(1f)) {
+            Text(
+                stringResource(R.string.dynamic_color),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                stringResource(R.string.dynamic_color_summary),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+          }
+          Switch(checked = dynamicColor, onCheckedChange = setDynamicColor)
+        }
+      }
+      item { SettingsSectionHeader(stringResource(R.string.downloads)) }
+      item {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+          Column(Modifier.weight(1f)) {
+            Text(
+                stringResource(R.string.wifi_only_downloads),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                stringResource(R.string.wifi_only_downloads_summary),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+          }
+          Switch(checked = wifiOnlyDownloads, onCheckedChange = setWifiOnlyDownloads)
+        }
+      }
+      item {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+          Text(
+              stringResource(R.string.queue),
+              Modifier.weight(1f),
+              style = MaterialTheme.typography.titleSmall,
+          )
+          IconButton(onClick = showQueue) {
+            Icon(Icons.AutoMirrored.Filled.QueueMusic, stringResource(R.string.queue))
+          }
+        }
+      }
+      item { SettingsSectionHeader(stringResource(R.string.subscriptions)) }
+      item { AddSubscriptionSection(add) }
+      item { SettingsSectionHeader(stringResource(R.string.opml)) }
+      item { OpmlSection(importOpml, exportOpml) }
+    }
 
 @Composable
 private fun AddSubscriptionSection(add: (String, () -> Unit) -> Unit) {
@@ -121,7 +129,8 @@ private fun AddSubscriptionSection(add: (String, () -> Unit) -> Unit) {
         url,
         { url = it },
         label = { Text(stringResource(R.string.feed_url)) },
-        modifier = Modifier.fillMaxWidth())
+        modifier = Modifier.fillMaxWidth(),
+    )
     Row(verticalAlignment = Alignment.CenterVertically) {
       Text(stringResource(R.string.add_feed), Modifier.weight(1f))
       FilledIconButton(onClick = { add(url) { url = "" } }, enabled = url.startsWith("https://")) {
@@ -139,19 +148,22 @@ private fun OpmlSection(importOpml: (Uri) -> Unit, exportOpml: (Uri) -> Unit) {
       }
   val exporter =
       rememberLauncherForActivityResult(
-          ActivityResultContracts.CreateDocument("application/x-opml")) {
-            it?.let(exportOpml)
-          }
+          ActivityResultContracts.CreateDocument("application/x-opml")
+      ) {
+        it?.let(exportOpml)
+      }
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Row(verticalAlignment = Alignment.CenterVertically) {
       Text(stringResource(R.string.import_opml), Modifier.weight(1f))
       IconButton(
           onClick = {
             importer.launch(
-                arrayOf("application/x-opml", "text/x-opml", "text/xml", "application/xml"))
-          }) {
-            Icon(Icons.Filled.FileUpload, stringResource(R.string.import_opml))
+                arrayOf("application/x-opml", "text/x-opml", "text/xml", "application/xml")
+            )
           }
+      ) {
+        Icon(Icons.Filled.FileUpload, stringResource(R.string.import_opml))
+      }
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
       Text(stringResource(R.string.export_opml), Modifier.weight(1f))
@@ -165,13 +177,16 @@ private fun OpmlSection(importOpml: (Uri) -> Unit, exportOpml: (Uri) -> Unit) {
 @Composable
 private fun SettingsSectionHeader(title: String) =
     Surface(
-        modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainer) {
-          Text(
-              title,
-              Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-              style = MaterialTheme.typography.titleSmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+      Text(
+          title,
+          Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+          style = MaterialTheme.typography.titleSmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
 
 @Composable
 private fun themeLabel(theme: ThemeMode): String =
@@ -180,4 +195,5 @@ private fun themeLabel(theme: ThemeMode): String =
           ThemeMode.System -> R.string.theme_system
           ThemeMode.Light -> R.string.theme_light
           ThemeMode.Dark -> R.string.theme_dark
-        })
+        }
+    )

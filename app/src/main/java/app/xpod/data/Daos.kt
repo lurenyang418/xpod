@@ -50,8 +50,49 @@ interface EpisodeDao {
   suspend fun recordPlayback(id: String, lastPlayedEpochMs: Long)
 
   @Query(
-      "UPDATE EpisodeEntity SET isPlayed = 1, lastPlayedEpochMs = :lastPlayedEpochMs WHERE id = :id AND isPlayed = 0")
+      "UPDATE EpisodeEntity SET isPlayed = 1, lastPlayedEpochMs = :lastPlayedEpochMs WHERE id = :id AND isPlayed = 0"
+  )
   suspend fun markEpisodePlayed(id: String, lastPlayedEpochMs: Long): Int
+}
+
+@Dao
+interface ArticleFeedDao {
+  @Query("SELECT * FROM ArticleFeedEntity ORDER BY title COLLATE NOCASE")
+  fun observeAll(): Flow<List<ArticleFeedEntity>>
+
+  @Query("SELECT * FROM ArticleFeedEntity ORDER BY title COLLATE NOCASE")
+  suspend fun all(): List<ArticleFeedEntity>
+
+  @Query("SELECT * FROM ArticleFeedEntity WHERE id = :id")
+  suspend fun find(id: String): ArticleFeedEntity?
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(feed: ArticleFeedEntity)
+
+  @Query("DELETE FROM ArticleFeedEntity WHERE id = :id") suspend fun delete(id: String)
+}
+
+@Dao
+interface ArticleDao {
+  @Query("SELECT * FROM ArticleEntity ORDER BY publishedEpochMs DESC")
+  fun observeAll(): Flow<List<ArticleEntity>>
+
+  @Query("SELECT * FROM ArticleEntity WHERE feedId = :feedId ORDER BY publishedEpochMs DESC")
+  fun observeForFeed(feedId: String): Flow<List<ArticleEntity>>
+
+  @Query("SELECT * FROM ArticleEntity WHERE id = :id") suspend fun find(id: String): ArticleEntity?
+
+  @Query("SELECT * FROM ArticleEntity WHERE feedId = :feedId")
+  suspend fun allForFeed(feedId: String): List<ArticleEntity>
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertAll(items: List<ArticleEntity>)
+
+  @Query("UPDATE ArticleEntity SET isRead = 1 WHERE id = :id") suspend fun markRead(id: String)
+
+  @Query("UPDATE ArticleEntity SET isRead = :read WHERE id = :id")
+  suspend fun setRead(id: String, read: Boolean)
+
+  @Query("UPDATE ArticleEntity SET isFavorite = NOT isFavorite WHERE id = :id")
+  suspend fun toggleFavorite(id: String)
 }
 
 @Dao

@@ -10,6 +10,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.xpod.data.PodcastRepository
+import app.xpod.data.ReaderRepository
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -24,7 +25,10 @@ class FeedRefreshWorker(appContext: Context, params: WorkerParameters) :
             applicationContext,
             FeedRefreshWorkerEntryPoint::class.java,
         )
-    return if (entryPoint.podcasts().refreshAll().shouldRetry) Result.retry() else Result.success()
+    val podcastResult = entryPoint.podcasts().refreshAll()
+    val readerResult = entryPoint.reader().refreshAll()
+    return if (podcastResult.shouldRetry || readerResult.shouldRetry) Result.retry()
+    else Result.success()
   }
 }
 
@@ -32,6 +36,8 @@ class FeedRefreshWorker(appContext: Context, params: WorkerParameters) :
 @InstallIn(SingletonComponent::class)
 interface FeedRefreshWorkerEntryPoint {
   fun podcasts(): PodcastRepository
+
+  fun reader(): ReaderRepository
 }
 
 object FeedRefreshScheduler {
@@ -41,7 +47,8 @@ object FeedRefreshScheduler {
     val request =
         PeriodicWorkRequestBuilder<FeedRefreshWorker>(1, TimeUnit.DAYS)
             .setConstraints(
-                Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+            )
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
     WorkManager.getInstance(context)

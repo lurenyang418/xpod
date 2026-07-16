@@ -5,18 +5,19 @@ plugins {
   alias(libs.plugins.kotlin.compose) apply false
   alias(libs.plugins.ksp) apply false
   alias(libs.plugins.hilt) apply false
-  id("com.diffplug.spotless") version "7.2.1"
+  alias(libs.plugins.androidx.room) apply false
+  id("com.diffplug.spotless") version "8.8.0"
 }
 
 configure<SpotlessExtension> {
   kotlin {
     target("app/src/*/java/**/*.kt", "app/src/*/kotlin/**/*.kt")
-    ktfmt()
+    ktfmt("0.63")
   }
 
   kotlinGradle {
     target("*.gradle.kts", "**/*.gradle.kts")
-    ktfmt()
+    ktfmt("0.63")
   }
 
   format("misc") {

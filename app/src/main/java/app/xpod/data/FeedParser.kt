@@ -17,7 +17,7 @@ data class ParsedFeed(
     val author: String,
     val description: String,
     val artworkUrl: String?,
-    val episodes: List<ParsedEpisode>
+    val episodes: List<ParsedEpisode>,
 )
 
 data class ParsedEpisode(
@@ -27,12 +27,31 @@ data class ParsedEpisode(
     val audioUrl: String,
     val publishedEpochMs: Long,
     val durationMs: Long?,
-    val artworkUrl: String?
+    val artworkUrl: String?,
 )
+
+object FeedId {
+  fun from(value: String): String =
+      MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") {
+        "%02x".format(it)
+      }
+}
 
 class FeedParser @Inject constructor() {
   fun parse(input: InputStream): ParsedFeed {
     val parser = XmlPullParserFactory.newInstance().newPullParser().apply { setInput(input, null) }
+    while (
+        parser.eventType != XmlPullParser.START_TAG &&
+            parser.eventType != XmlPullParser.END_DOCUMENT
+    ) {
+      parser.next()
+    }
+    require(
+        parser.eventType == XmlPullParser.START_TAG &&
+            parser.name.lowercase() in setOf("rss", "rdf:rdf")
+    ) {
+      "Unsupported podcast feed format"
+    }
     var feedTitle = "Untitled podcast"
     var author = ""
     var description = ""
@@ -63,9 +82,11 @@ class FeedParser @Inject constructor() {
     val episodes = mutableListOf<ParsedEpisode>()
     var depth = parser.depth
     while (parser.next() != XmlPullParser.END_DOCUMENT) {
-      if (parser.eventType == XmlPullParser.END_TAG &&
-          parser.depth == depth &&
-          parser.name.equals("channel", true))
+      if (
+          parser.eventType == XmlPullParser.END_TAG &&
+              parser.depth == depth &&
+              parser.name.equals("channel", true)
+      )
           break
       if (parser.eventType != XmlPullParser.START_TAG) continue
       when (parser.name.lowercase()) {
@@ -97,9 +118,11 @@ class FeedParser @Inject constructor() {
     var durationMs: Long? = null
     val depth = parser.depth
     while (parser.next() != XmlPullParser.END_DOCUMENT) {
-      if (parser.eventType == XmlPullParser.END_TAG &&
-          parser.depth == depth &&
-          parser.name.equals("item", true))
+      if (
+          parser.eventType == XmlPullParser.END_TAG &&
+              parser.depth == depth &&
+              parser.name.equals("item", true)
+      )
           break
       if (parser.eventType != XmlPullParser.START_TAG) continue
       when (parser.name.lowercase()) {
@@ -114,7 +137,11 @@ class FeedParser @Inject constructor() {
         "updated" -> publishedEpochMs = parsePublishedEpochMs(parser.nextText())
         "itunes:duration",
         "duration" -> durationMs = parseDurationMs(parser.nextText())
-        "enclosure" -> audioUrl = parser.getAttributeValue(null, "url") ?: audioUrl
+        "enclosure" -> {
+          val url = parser.getAttributeValue(null, "url")
+          val type = parser.getAttributeValue(null, "type")
+          if (url != null && isAudioEnclosure(url, type)) audioUrl = url
+        }
         "image",
         "itunes:image" ->
             image =
@@ -128,10 +155,15 @@ class FeedParser @Inject constructor() {
     return ParsedEpisode(key, title, description, audioUrl, publishedEpochMs, durationMs, image)
   }
 
-  fun id(value: String): String =
-      MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") {
-        "%02x".format(it)
-      }
+  fun id(value: String): String = FeedId.from(value)
+
+  private fun isAudioEnclosure(url: String, type: String?): Boolean =
+      type?.startsWith("audio/", ignoreCase = true) == true ||
+          url.substringBefore('?')
+              .lowercase()
+              .endsWithAny(".mp3", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".flac")
+
+  private fun String.endsWithAny(vararg suffixes: String): Boolean = suffixes.any(::endsWith)
 
   private fun parsePublishedEpochMs(value: String): Long {
     val text = value.trim()

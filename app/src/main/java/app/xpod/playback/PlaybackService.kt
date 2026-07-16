@@ -9,6 +9,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -36,6 +37,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class PlaybackService : MediaLibraryService() {
   @Inject lateinit var playbackRepository: PlaybackRepository
   @Inject lateinit var database: XpodDatabase
@@ -60,17 +62,21 @@ class PlaybackService : MediaLibraryService() {
                       .setUsage(C.USAGE_MEDIA)
                       .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
                       .build(),
-                  true)
+                  true,
+              )
               addListener(
                   object : Player.Listener {
                     override fun onEvents(player: Player, events: Player.Events) {
-                      if (events.contains(Player.EVENT_POSITION_DISCONTINUITY) ||
-                          events.contains(Player.EVENT_IS_PLAYING_CHANGED) ||
-                          events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION) ||
-                          events.contains(Player.EVENT_PLAYBACK_PARAMETERS_CHANGED))
+                      if (
+                          events.contains(Player.EVENT_POSITION_DISCONTINUITY) ||
+                              events.contains(Player.EVENT_IS_PLAYING_CHANGED) ||
+                              events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION) ||
+                              events.contains(Player.EVENT_PLAYBACK_PARAMETERS_CHANGED)
+                      )
                           save(player)
                     }
-                  })
+                  }
+              )
             }
     val sessionActivity =
         PendingIntent.getActivity(
@@ -87,10 +93,11 @@ class PlaybackService : MediaLibraryService() {
                   override fun onGetLibraryRoot(
                       session: MediaLibrarySession,
                       browser: MediaSession.ControllerInfo,
-                      params: LibraryParams?
+                      params: LibraryParams?,
                   ): ListenableFuture<LibraryResult<MediaItem>> =
                       Futures.immediateFuture(
-                          LibraryResult.ofItem(browsableItem("root", "XPOD"), params))
+                          LibraryResult.ofItem(browsableItem("root", "XPOD"), params)
+                      )
 
                   override fun onGetChildren(
                       session: MediaLibrarySession,
@@ -98,14 +105,16 @@ class PlaybackService : MediaLibraryService() {
                       parentId: String,
                       page: Int,
                       pageSize: Int,
-                      params: LibraryParams?
+                      params: LibraryParams?,
                   ): ListenableFuture<
-                      LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>> {
+                      LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>
+                  > {
                     val items =
                         if (parentId == "root")
                             listOf(
                                 browsableItem("subscriptions", "Subscriptions"),
-                                browsableItem("downloads", "Downloads"))
+                                browsableItem("downloads", "Downloads"),
+                            )
                         else emptyList()
                     return Futures.immediateFuture(LibraryResult.ofItemList(items, params))
                   }
@@ -113,7 +122,7 @@ class PlaybackService : MediaLibraryService() {
                   override fun onPlaybackResumption(
                       session: MediaSession,
                       controller: MediaSession.ControllerInfo,
-                      isForPlayback: Boolean
+                      isForPlayback: Boolean,
                   ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
                     val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
                     ioScope.launch {
@@ -124,17 +133,18 @@ class PlaybackService : MediaLibraryService() {
                                 playbackRepository.queue().mapNotNull {
                                   database.episodes().find(it)
                                 }
-                            val queue =
-                                episodes.ifEmpty {
-                                  listOf(
-                                      database.episodes().find(id)
-                                          ?: error("Previous episode is unavailable"))
-                                }
+                            val queue = episodes.ifEmpty {
+                              listOf(
+                                  database.episodes().find(id)
+                                      ?: error("Previous episode is unavailable")
+                              )
+                            }
                             val currentIndex = queue.indexOfFirst { it.id == id }.coerceAtLeast(0)
                             MediaSession.MediaItemsWithStartPosition(
                                 queue.map { mediaItem(it.id, it.title, it.audioUrl) },
                                 currentIndex,
-                                state.positionMs) to state.speed
+                                state.positionMs,
+                            ) to state.speed
                           }
                           .onSuccess { (items, speed) ->
                             playerScope.launch {
@@ -146,16 +156,16 @@ class PlaybackService : MediaLibraryService() {
                     }
                     return future
                   }
-                })
+                },
+            )
             .setSessionActivity(sessionActivity)
             .build()
-    persistenceJob =
-        playerScope.launch {
-          while (true) {
-            delay(2_000)
-            if (player.currentMediaItem != null) save(player)
-          }
-        }
+    persistenceJob = playerScope.launch {
+      while (true) {
+        delay(2_000)
+        if (player.currentMediaItem != null) save(player)
+      }
+    }
   }
 
   private fun save(player: Player) {
@@ -173,9 +183,11 @@ class PlaybackService : MediaLibraryService() {
 
   private suspend fun persist(snapshot: PlaybackSnapshot) {
     playbackRepository.save(snapshot.episodeId, snapshot.positionMs, snapshot.speed)
-    if (snapshot.episodeId != null &&
-        snapshot.durationMs > 0 &&
-        snapshot.positionMs.toDouble() / snapshot.durationMs >= 0.9) {
+    if (
+        snapshot.episodeId != null &&
+            snapshot.durationMs > 0 &&
+            snapshot.positionMs.toDouble() / snapshot.durationMs >= 0.9
+    ) {
       playbackRepository.markEpisodePlayed(snapshot.episodeId)
     }
   }
@@ -227,6 +239,6 @@ class PlaybackService : MediaLibraryService() {
       val episodeId: String?,
       val positionMs: Long,
       val durationMs: Long,
-      val speed: Float
+      val speed: Float,
   )
 }

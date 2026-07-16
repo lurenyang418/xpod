@@ -30,7 +30,7 @@ private enum class LibraryFilter {
   Unplayed,
   Favorites,
   DownloadTasks,
-  Downloaded
+  Downloaded,
 }
 
 @Composable
@@ -44,7 +44,7 @@ internal fun LibraryScreen(
     downloadStates: Map<String, DownloadState>,
     openEpisode: (EpisodeEntity) -> Unit,
     togglePlayback: () -> Unit,
-    addToQueue: (EpisodeEntity) -> Unit
+    addToQueue: (EpisodeEntity) -> Unit,
 ) {
   var filter by remember { mutableStateOf(LibraryFilter.All) }
   val episodes =
@@ -84,7 +84,8 @@ internal fun LibraryScreen(
             downloadStates[it.id],
             openEpisode,
             togglePlayback,
-            addToQueue)
+            addToQueue,
+        )
       }
     }
   }
@@ -101,4 +102,5 @@ private fun libraryFilterLabel(filter: LibraryFilter): String =
           LibraryFilter.Favorites -> R.string.favorites
           LibraryFilter.DownloadTasks -> R.string.download_tasks
           LibraryFilter.Downloaded -> R.string.downloaded
-        })
+        }
+    )

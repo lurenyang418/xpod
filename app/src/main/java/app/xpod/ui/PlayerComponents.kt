@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,33 +52,38 @@ internal fun MiniPlayer(
     nowPlaying: NowPlaying,
     onToggle: () -> Unit,
     onOpen: () -> Unit,
-    onShowSpeedPicker: () -> Unit
+    onShowSpeedPicker: () -> Unit,
 ) =
     Surface(
-        modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.secondaryContainer) {
-          Row(
-              Modifier.fillMaxWidth()
-                  .heightIn(min = 64.dp)
-                  .clickable(onClick = onOpen)
-                  .padding(start = 16.dp, end = 8.dp),
-              verticalAlignment = Alignment.CenterVertically) {
-                Artwork(nowPlaying.episode.artworkUrl, null, Modifier.size(40.dp))
-                Text(
-                    nowPlaying.episode.title,
-                    Modifier.weight(1f).padding(horizontal = 12.dp),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.titleSmall)
-                IconButton(onClick = onShowSpeedPicker) {
-                  Text(speedLabel(nowPlaying.speed), style = MaterialTheme.typography.labelMedium)
-                }
-                IconButton(onClick = onToggle) {
-                  Icon(
-                      if (nowPlaying.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                      stringResource(if (nowPlaying.isPlaying) R.string.pause else R.string.play))
-                }
-              }
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+    ) {
+      Row(
+          Modifier.fillMaxWidth()
+              .heightIn(min = 64.dp)
+              .clickable(onClick = onOpen)
+              .padding(start = 16.dp, end = 8.dp),
+          verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Artwork(nowPlaying.episode.artworkUrl, null, Modifier.size(40.dp))
+        Text(
+            nowPlaying.episode.title,
+            Modifier.weight(1f).padding(horizontal = 12.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.titleSmall,
+        )
+        IconButton(onClick = onShowSpeedPicker) {
+          Text(speedLabel(nowPlaying.speed), style = MaterialTheme.typography.labelMedium)
         }
+        IconButton(onClick = onToggle) {
+          Icon(
+              if (nowPlaying.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+              stringResource(if (nowPlaying.isPlaying) R.string.pause else R.string.play),
+          )
+        }
+      }
+    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,28 +91,32 @@ internal fun SpeedPicker(selected: Float, onSelect: (Float) -> Unit, onDismiss: 
     ModalBottomSheet(onDismissRequest = onDismiss) {
       Column(
           Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
-          verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(
-                stringResource(R.string.playback_speed),
-                style = MaterialTheme.typography.titleLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-              listOf(0.75f, 1f, 1.25f, 1.5f).forEach { speed ->
-                FilterChip(
-                    selected = selected == speed,
-                    onClick = { onSelect(speed) },
-                    label = { Text(speedLabel(speed)) })
-              }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-              listOf(1.75f, 2f).forEach { speed ->
-                FilterChip(
-                    selected = selected == speed,
-                    onClick = { onSelect(speed) },
-                    label = { Text(speedLabel(speed)) })
-              }
-            }
-            Spacer(Modifier.height(16.dp))
+          verticalArrangement = Arrangement.spacedBy(12.dp),
+      ) {
+        Text(
+            stringResource(R.string.playback_speed),
+            style = MaterialTheme.typography.titleLarge,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          listOf(0.75f, 1f, 1.25f, 1.5f).forEach { speed ->
+            FilterChip(
+                selected = selected == speed,
+                onClick = { onSelect(speed) },
+                label = { Text(speedLabel(speed)) },
+            )
           }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          listOf(1.75f, 2f).forEach { speed ->
+            FilterChip(
+                selected = selected == speed,
+                onClick = { onSelect(speed) },
+                label = { Text(speedLabel(speed)) },
+            )
+          }
+        }
+        Spacer(Modifier.height(16.dp))
+      }
     }
 
 @Composable
@@ -118,80 +128,87 @@ internal fun FullPlayerScreen(
     onSkipBack: () -> Unit,
     onSkipForward: () -> Unit,
     onShowSpeedPicker: () -> Unit,
-    onOpenPodcast: () -> Unit
+    onOpenPodcast: () -> Unit,
 ) {
   val duration = nowPlaying.durationMs.coerceAtLeast(1L)
   var scrubPosition by
-      remember(nowPlaying.episode.id) { mutableStateOf(nowPlaying.positionMs.toFloat()) }
+      remember(nowPlaying.episode.id) { mutableFloatStateOf(nowPlaying.positionMs.toFloat()) }
   var isScrubbing by remember(nowPlaying.episode.id) { mutableStateOf(false) }
   LaunchedEffect(nowPlaying.positionMs, nowPlaying.durationMs) {
     if (!isScrubbing) scrubPosition = nowPlaying.positionMs.coerceIn(0L, duration).toFloat()
   }
   Column(
-      Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Spacer(Modifier.weight(1f))
-        Artwork(nowPlaying.episode.artworkUrl ?: podcast?.artworkUrl, null, Modifier.size(200.dp))
-        Spacer(Modifier.height(36.dp))
-        Text(
-            nowPlaying.episode.title,
-            style = MaterialTheme.typography.headlineSmall,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis)
-        Spacer(Modifier.height(12.dp))
-        podcast?.let {
-          Text(
-              it.title,
-              Modifier.clickable(onClick = onOpenPodcast),
-              style = MaterialTheme.typography.titleMedium,
-              color = MaterialTheme.colorScheme.primary,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis)
-        }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            nowPlaying.episode.description,
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis)
-        Spacer(Modifier.weight(1f))
-        Slider(
-            value = scrubPosition.coerceIn(0f, duration.toFloat()),
-            onValueChange = {
-              isScrubbing = true
-              scrubPosition = it
-            },
-            onValueChangeFinished = {
-              onSeek(scrubPosition.toLong())
-              isScrubbing = false
-            },
-            valueRange = 0f..duration.toFloat(),
-        )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-          Text(timeLabel(scrubPosition.toLong()), style = MaterialTheme.typography.labelMedium)
-          Text(timeLabel(nowPlaying.durationMs), style = MaterialTheme.typography.labelMedium)
-        }
-        Spacer(Modifier.height(16.dp))
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-              IconButton(onClick = onShowSpeedPicker) {
-                Text(speedLabel(nowPlaying.speed), style = MaterialTheme.typography.labelLarge)
-              }
-              IconButton(onClick = onSkipBack) {
-                Icon(Icons.Filled.Replay10, stringResource(R.string.back_10_seconds))
-              }
-              FilledIconButton(onClick = onToggle, modifier = Modifier.size(64.dp)) {
-                Icon(
-                    if (nowPlaying.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    stringResource(if (nowPlaying.isPlaying) R.string.pause else R.string.play),
-                    Modifier.size(32.dp))
-              }
-              IconButton(onClick = onSkipForward) {
-                Icon(Icons.Filled.Forward30, stringResource(R.string.forward_30_seconds))
-              }
-            }
-        Spacer(Modifier.height(12.dp))
+      Modifier.fillMaxSize().padding(24.dp),
+      horizontalAlignment = Alignment.CenterHorizontally,
+  ) {
+    Spacer(Modifier.weight(1f))
+    Artwork(nowPlaying.episode.artworkUrl ?: podcast?.artworkUrl, null, Modifier.size(200.dp))
+    Spacer(Modifier.height(36.dp))
+    Text(
+        nowPlaying.episode.title,
+        style = MaterialTheme.typography.headlineSmall,
+        maxLines = 3,
+        overflow = TextOverflow.Ellipsis,
+    )
+    Spacer(Modifier.height(12.dp))
+    podcast?.let {
+      Text(
+          it.title,
+          Modifier.clickable(onClick = onOpenPodcast),
+          style = MaterialTheme.typography.titleMedium,
+          color = MaterialTheme.colorScheme.primary,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+      )
+    }
+    Spacer(Modifier.height(8.dp))
+    Text(
+        nowPlaying.episode.description,
+        style = MaterialTheme.typography.bodyMedium,
+        maxLines = 3,
+        overflow = TextOverflow.Ellipsis,
+    )
+    Spacer(Modifier.weight(1f))
+    Slider(
+        value = scrubPosition.coerceIn(0f, duration.toFloat()),
+        onValueChange = {
+          isScrubbing = true
+          scrubPosition = it
+        },
+        onValueChangeFinished = {
+          onSeek(scrubPosition.toLong())
+          isScrubbing = false
+        },
+        valueRange = 0f..duration.toFloat(),
+    )
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+      Text(timeLabel(scrubPosition.toLong()), style = MaterialTheme.typography.labelMedium)
+      Text(timeLabel(nowPlaying.durationMs), style = MaterialTheme.typography.labelMedium)
+    }
+    Spacer(Modifier.height(16.dp))
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+      IconButton(onClick = onShowSpeedPicker) {
+        Text(speedLabel(nowPlaying.speed), style = MaterialTheme.typography.labelLarge)
       }
+      IconButton(onClick = onSkipBack) {
+        Icon(Icons.Filled.Replay10, stringResource(R.string.back_10_seconds))
+      }
+      FilledIconButton(onClick = onToggle, modifier = Modifier.size(64.dp)) {
+        Icon(
+            if (nowPlaying.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+            stringResource(if (nowPlaying.isPlaying) R.string.pause else R.string.play),
+            Modifier.size(32.dp),
+        )
+      }
+      IconButton(onClick = onSkipForward) {
+        Icon(Icons.Filled.Forward30, stringResource(R.string.forward_30_seconds))
+      }
+    }
+    Spacer(Modifier.height(12.dp))
+  }
 }
 
 @Composable
@@ -202,7 +219,8 @@ internal fun Artwork(url: String?, contentDescription: String?, modifier: Modifi
           Icons.Filled.RssFeed,
           null,
           Modifier.size(28.dp),
-          tint = MaterialTheme.colorScheme.onSecondaryContainer)
+          tint = MaterialTheme.colorScheme.onSecondaryContainer,
+      )
       if (!url.isNullOrBlank()) {
         AsyncImage(
             model = url,

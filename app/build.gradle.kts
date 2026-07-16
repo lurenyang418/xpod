@@ -5,6 +5,7 @@ plugins {
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.ksp)
   alias(libs.plugins.hilt)
+  alias(libs.plugins.androidx.room)
 }
 
 val signingProperties = Properties()
@@ -16,14 +17,14 @@ if (signingPropertiesFile.exists()) {
 
 android {
   namespace = "app.xpod"
-  compileSdk = 36
+  compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
     applicationId = "tech.lury.xpod"
     minSdk = 33
     targetSdk = 36
-    versionCode = 2
-    versionName = "0.1.1"
+    versionCode = 3
+    versionName = "0.2.0"
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
@@ -32,6 +33,8 @@ android {
     buildConfig = true
   }
   packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+
+  sourceSets { getByName("androidTest").assets.directories.add("$projectDir/schemas") }
 
   buildTypes {
     val stableSigningConfig =
@@ -64,7 +67,7 @@ android {
   }
 }
 
-ksp { arg("room.schemaLocation", "$projectDir/schemas") }
+room { schemaDirectory("$projectDir/schemas") }
 
 dependencies {
   implementation(libs.androidx.core.ktx)
@@ -82,6 +85,7 @@ dependencies {
   implementation(libs.androidx.room.ktx)
   ksp(libs.androidx.room.compiler)
   implementation(libs.androidx.datastore.preferences)
+  implementation(platform(libs.kotlinx.serialization.bom))
   implementation(libs.androidx.work.runtime.ktx)
   implementation(libs.androidx.media3.exoplayer)
   implementation(libs.androidx.media3.session)
@@ -92,8 +96,13 @@ dependencies {
   ksp(libs.hilt.compiler)
   implementation(libs.okhttp)
   implementation(libs.coil.compose)
+  implementation(libs.coil.network.okhttp)
+  implementation(libs.jsoup)
   debugImplementation(libs.androidx.compose.ui.tooling)
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)
   testImplementation(libs.kxml)
+  androidTestImplementation(libs.androidx.room.testing)
+  androidTestImplementation(libs.androidx.test.runner)
+  androidTestImplementation(libs.androidx.test.ext.junit)
 }

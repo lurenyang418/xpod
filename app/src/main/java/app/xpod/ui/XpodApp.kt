@@ -2,7 +2,6 @@ package app.xpod.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.RssFeed
@@ -47,14 +47,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.xpod.R
+import app.xpod.data.ArticleFeedEntity
 import app.xpod.data.EpisodeEntity
 import app.xpod.data.PodcastEntity
 import app.xpod.data.ThemeMode
@@ -62,8 +64,9 @@ import app.xpod.playback.NowPlaying
 
 private enum class Destination {
   Subscriptions,
+  Reader,
   Library,
-  Settings
+  Settings,
 }
 
 @Composable
@@ -80,17 +83,16 @@ fun XpodApp(viewModel: MainViewModel = hiltViewModel()) {
   val notificationPermission =
       rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
   val requestNotificationPermission = {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+    if (
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED)
+            PackageManager.PERMISSION_GRANTED
+    )
         notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
   }
   val scheme =
       when {
-        dynamic && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && dark ->
-            dynamicDarkColorScheme(context)
-        dynamic && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-            dynamicLightColorScheme(context)
+        dynamic && dark -> dynamicDarkColorScheme(context)
+        dynamic -> dynamicLightColorScheme(context)
         dark -> darkColorScheme()
         else -> lightColorScheme()
       }
@@ -105,22 +107,27 @@ private fun XpodHome(
     viewModel: MainViewModel,
     theme: ThemeMode,
     dynamic: Boolean,
-    requestNotificationPermission: () -> Unit
+    requestNotificationPermission: () -> Unit,
 ) {
   val state by viewModel.state.collectAsStateWithLifecycle()
   val nowPlaying by viewModel.nowPlaying.collectAsStateWithLifecycle()
   val downloadStates by viewModel.downloadStates.collectAsStateWithLifecycle()
   val wifiOnlyDownloads by viewModel.wifiOnlyDownloads.collectAsStateWithLifecycle()
   val queue by viewModel.queue.collectAsStateWithLifecycle()
-  val wide = LocalConfiguration.current.screenWidthDp >= 600
+  val containerWidth = LocalWindowInfo.current.containerSize.width
+  val wide = with(LocalDensity.current) { containerWidth.toDp() >= 600.dp }
   val snackbar = remember { SnackbarHostState() }
   var destination by rememberSaveable { mutableStateOf(Destination.Subscriptions) }
   var selectedEpisodeId by rememberSaveable { mutableStateOf<String?>(null) }
-  val selectedEpisode =
-      selectedEpisodeId?.let { id ->
-        (state.episodes + state.libraryEpisodes + queue.episodes).firstOrNull { it.id == id }
-      }
+  var selectedArticleId by rememberSaveable { mutableStateOf<String?>(null) }
+  val selectedEpisode = selectedEpisodeId?.let { id ->
+    (state.episodes + state.libraryEpisodes + queue.episodes).firstOrNull { it.id == id }
+  }
+  val selectedArticle = selectedArticleId?.let { id ->
+    state.articles.firstOrNull { article -> article.id == id }
+  }
   var podcastToDelete by remember { mutableStateOf<PodcastEntity?>(null) }
+  var articleFeedToDelete by remember { mutableStateOf<ArticleFeedEntity?>(null) }
   var downloadToRemove by remember { mutableStateOf<EpisodeEntity?>(null) }
   var fullPlayer by rememberSaveable { mutableStateOf(false) }
   var showSpeedPicker by rememberSaveable { mutableStateOf(false) }
@@ -145,6 +152,7 @@ private fun XpodHome(
     when {
       fullPlayer -> fullPlayer = false
       selectedEpisode != null -> selectedEpisodeId = null
+      selectedArticleId != null -> selectedArticleId = null
       destination == Destination.Subscriptions && state.selectedPodcastId != null ->
           viewModel.selectPodcast(null)
     }
@@ -153,6 +161,7 @@ private fun XpodHome(
       enabled =
           fullPlayer ||
               selectedEpisode != null ||
+              selectedArticleId != null ||
               destination == Destination.Subscriptions && state.selectedPodcastId != null,
       onBack = back,
   )
@@ -199,6 +208,14 @@ private fun XpodHome(
             onAddToQueue = { viewModel.addToQueue(episode) },
         )
       }
+      selectedArticle != null ->
+          ArticleReaderScreen(
+              article = selectedArticle,
+              feedTitle = state.articleFeeds.firstOrNull { it.id == selectedArticle.feedId }?.title,
+              setRead = viewModel::setArticleRead,
+              toggleFavorite = viewModel::toggleArticleFavorite,
+              onBack = { selectedArticleId = null },
+          )
       destination == Destination.Subscriptions ->
           SubscriptionScreen(
               state = state,
@@ -243,6 +260,18 @@ private fun XpodHome(
               },
               addToQueue = viewModel::addToQueue,
           )
+      destination == Destination.Reader ->
+          ReaderScreen(
+              state = state,
+              refresh = viewModel::refreshArticles,
+              openArticle = { article ->
+                viewModel.markArticleRead(article.id)
+                selectedArticleId = article.id
+              },
+              setRead = viewModel::setArticleRead,
+              toggleFavorite = viewModel::toggleArticleFavorite,
+              delete = { articleFeedToDelete = it },
+          )
       else ->
           SettingsScreen(
               theme = theme,
@@ -275,12 +304,13 @@ private fun XpodHome(
       },
       bottomBar = {
         HomeBottomBar(
-            visible = !wide && !fullPlayer,
+            visible = !wide && !fullPlayer && selectedArticleId == null,
             nowPlaying = nowPlaying,
             destination = destination,
             onDestinationSelected = {
               destination = it
               selectedEpisodeId = null
+              selectedArticleId = null
             },
             onToggle = {
               requestNotificationPermission()
@@ -293,7 +323,7 @@ private fun XpodHome(
   ) { padding ->
     Box(Modifier.fillMaxSize().padding(padding)) {
       Row(Modifier.fillMaxSize()) {
-        if (wide)
+        if (wide && selectedArticleId == null)
             NavigationRail {
               Destination.entries.forEach { item ->
                 NavigationRailItem(
@@ -301,6 +331,7 @@ private fun XpodHome(
                     onClick = {
                       destination = item
                       selectedEpisodeId = null
+                      selectedArticleId = null
                     },
                     icon = { DestinationIcon(item) },
                     label = { Text(destinationLabel(item)) },
@@ -313,7 +344,8 @@ private fun XpodHome(
           snackbar,
           Modifier.align(Alignment.TopCenter)
               .fillMaxWidth()
-              .padding(horizontal = 16.dp, vertical = 12.dp))
+              .padding(horizontal = 16.dp, vertical = 12.dp),
+      )
     }
   }
   nowPlaying
@@ -344,12 +376,18 @@ private fun XpodHome(
   }
   HomeDialogs(
       podcastToDelete = podcastToDelete,
+      articleFeedToDelete = articleFeedToDelete,
       downloadToRemove = downloadToRemove,
       confirmClearQueue = confirmClearQueue,
       onDismissPodcastDelete = { podcastToDelete = null },
       onRemovePodcast = {
         viewModel.removePodcast(it)
         podcastToDelete = null
+      },
+      onDismissArticleFeedDelete = { articleFeedToDelete = null },
+      onRemoveArticleFeed = {
+        viewModel.removeArticleFeed(it)
+        articleFeedToDelete = null
       },
       onDismissDownloadRemove = { downloadToRemove = null },
       onRemoveDownload = {
@@ -426,10 +464,13 @@ private fun HomeBottomBar(
 @Composable
 private fun HomeDialogs(
     podcastToDelete: PodcastEntity?,
+    articleFeedToDelete: ArticleFeedEntity?,
     downloadToRemove: EpisodeEntity?,
     confirmClearQueue: Boolean,
     onDismissPodcastDelete: () -> Unit,
     onRemovePodcast: (String) -> Unit,
+    onDismissArticleFeedDelete: () -> Unit,
+    onRemoveArticleFeed: (String) -> Unit,
     onDismissDownloadRemove: () -> Unit,
     onRemoveDownload: (String) -> Unit,
     onDismissClearQueue: () -> Unit,
@@ -447,6 +488,23 @@ private fun HomeDialogs(
         },
         dismissButton = {
           TextButton(onClick = onDismissPodcastDelete) { Text(stringResource(R.string.cancel)) }
+        },
+    )
+  }
+  articleFeedToDelete?.let { feed ->
+    AlertDialog(
+        onDismissRequest = onDismissArticleFeedDelete,
+        title = { Text(stringResource(R.string.remove_subscription_title)) },
+        text = { Text(stringResource(R.string.remove_article_subscription_message)) },
+        confirmButton = {
+          TextButton(onClick = { onRemoveArticleFeed(feed.id) }) {
+            Text(stringResource(R.string.remove))
+          }
+        },
+        dismissButton = {
+          TextButton(onClick = onDismissArticleFeedDelete) {
+            Text(stringResource(R.string.cancel))
+          }
         },
     )
   }
@@ -484,6 +542,7 @@ private fun HomeDialogs(
 private fun DestinationIcon(destination: Destination) =
     when (destination) {
       Destination.Subscriptions -> Icon(Icons.Filled.RssFeed, null)
+      Destination.Reader -> Icon(Icons.AutoMirrored.Filled.Article, null)
       Destination.Library -> Icon(Icons.Filled.LibraryMusic, null)
       Destination.Settings -> Icon(Icons.Filled.Settings, null)
     }
@@ -492,7 +551,9 @@ private fun DestinationIcon(destination: Destination) =
 private fun destinationLabel(destination: Destination): String =
     stringResource(
         when (destination) {
-          Destination.Subscriptions -> R.string.subscriptions
+          Destination.Subscriptions -> R.string.podcasts
+          Destination.Reader -> R.string.reader
           Destination.Library -> R.string.library
           Destination.Settings -> R.string.settings
-        })
+        }
+    )
