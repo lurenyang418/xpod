@@ -1,5 +1,6 @@
 package app.xpod.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -32,21 +34,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.xpod.R
 import app.xpod.data.EpisodeEntity
 import app.xpod.playback.PlaybackQueue
+import app.xpod.playback.PlaybackStatus
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun QueueSheet(
     queue: PlaybackQueue,
+    playbackStatus: PlaybackStatus?,
     onDismiss: () -> Unit,
     onClear: () -> Unit,
     onOpenEpisode: (EpisodeEntity) -> Unit,
     onPlay: (String) -> Unit,
+    onTogglePlayback: () -> Unit,
     onMove: (Int, Int) -> Unit,
     onRemove: (String) -> Unit,
 ) =
@@ -70,18 +76,54 @@ internal fun QueueSheet(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
           itemsIndexed(queue.episodes, key = { _, episode -> episode.id }) { index, episode ->
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            val active = episode.id == queue.currentEpisodeId
+            val activeStatus = playbackStatus.takeIf { active } ?: PlaybackStatus.Paused
+            Row(
+                Modifier.fillMaxWidth()
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(
+                        if (active) MaterialTheme.colorScheme.secondaryContainer
+                        else MaterialTheme.colorScheme.surface
+                    )
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
               Artwork(episode.artworkUrl, null, Modifier.size(44.dp))
-              Text(
-                  episode.title,
+              Column(
                   Modifier.weight(1f)
                       .clickable { onOpenEpisode(episode) }
-                      .padding(horizontal = 12.dp),
-                  maxLines = 2,
-                  overflow = TextOverflow.Ellipsis,
-              )
-              IconButton(onClick = { onPlay(episode.id) }) {
-                Icon(Icons.Filled.PlayArrow, stringResource(R.string.play))
+                      .padding(horizontal = 12.dp, vertical = 6.dp)
+              ) {
+                Text(
+                    episode.title,
+                    color =
+                        if (active) MaterialTheme.colorScheme.onSecondaryContainer
+                        else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (active) {
+                  Text(
+                      stringResource(
+                          when (activeStatus) {
+                            PlaybackStatus.Playing -> R.string.now_playing
+                            PlaybackStatus.Paused -> R.string.playback_paused
+                            PlaybackStatus.Buffering -> R.string.playback_buffering
+                            PlaybackStatus.Ended -> R.string.playback_finished
+                            PlaybackStatus.Error -> R.string.playback_error
+                          }
+                      ),
+                      color = MaterialTheme.colorScheme.primary,
+                      style = MaterialTheme.typography.labelMedium,
+                  )
+                }
+              }
+              IconButton(onClick = { if (active) onTogglePlayback() else onPlay(episode.id) }) {
+                val playing = active && activeStatus.showsPauseAction
+                Icon(
+                    if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    stringResource(if (playing) R.string.pause else R.string.play),
+                )
               }
               var menuExpanded by remember { mutableStateOf(false) }
               Box {
@@ -98,7 +140,10 @@ internal fun QueueSheet(
                         onMove(index, index - 1)
                         menuExpanded = false
                       },
-                      enabled = index > 0,
+                      enabled =
+                          index > 0 &&
+                              !active &&
+                              queue.episodes[index - 1].id != queue.currentEpisodeId,
                   )
                   DropdownMenuItem(
                       text = { Text(stringResource(R.string.move_down)) },
@@ -106,7 +151,7 @@ internal fun QueueSheet(
                         onMove(index, index + 1)
                         menuExpanded = false
                       },
-                      enabled = index < queue.episodes.lastIndex,
+                      enabled = index < queue.episodes.lastIndex && !active,
                   )
                   DropdownMenuItem(
                       text = { Text(stringResource(R.string.remove_from_queue)) },

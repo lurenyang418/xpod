@@ -89,6 +89,10 @@
     <string name="cancel">Cancel</string>
     <string name="subscription_removed">Subscription removed</string>
     <string name="queue">Queue</string>
+    <string name="playback_paused">Paused</string>
+    <string name="playback_buffering">Buffering</string>
+    <string name="playback_finished">Finished</string>
+    <string name="playback_error">Playback error</string>
     <string name="clear_queue">Clear queue</string>
     <string name="clear_queue_title">Clear playback queue?</string>
     <string name="clear_queue_message">Current playback will stop and every episode will be removed from the queue.</string>

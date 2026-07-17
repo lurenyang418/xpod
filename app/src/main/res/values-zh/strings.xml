@@ -88,6 +88,10 @@
     <string name="cancel">取消</string>
     <string name="subscription_removed">订阅已删除</string>
     <string name="queue">播放队列</string>
+    <string name="playback_paused">已暂停</string>
+    <string name="playback_buffering">正在缓冲</string>
+    <string name="playback_finished">播放完毕</string>
+    <string name="playback_error">播放出错</string>
     <string name="clear_queue">清空队列</string>
     <string name="clear_queue_title">清空播放队列？</string>
     <string name="clear_queue_message">当前播放将停止，队列中的所有单集都会被移除。</string>

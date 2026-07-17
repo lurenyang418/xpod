@@ -363,6 +363,7 @@ private fun XpodHome(
   if (showQueue) {
     QueueSheet(
         queue = queue,
+        playbackStatus = nowPlaying?.takeIf { it.episode.id == queue.currentEpisodeId }?.status,
         onDismiss = { showQueue = false },
         onClear = { confirmClearQueue = true },
         onOpenEpisode = {
@@ -370,6 +371,7 @@ private fun XpodHome(
           showQueue = false
         },
         onPlay = viewModel::playQueueItem,
+        onTogglePlayback = viewModel::togglePlayback,
         onMove = viewModel::moveQueueItem,
         onRemove = viewModel::removeFromQueue,
     )
