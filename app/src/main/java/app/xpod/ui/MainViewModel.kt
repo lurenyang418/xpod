@@ -6,11 +6,22 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.xpod.R
+import app.xpod.data.AppTab
 import app.xpod.data.ArticleEntity
 import app.xpod.data.ArticleFeedEntity
+import app.xpod.data.CloudMemo
+import app.xpod.data.CloudMemoDrafts
+import app.xpod.data.CloudMemoVisibility
+import app.xpod.data.CloudMemosConnection
+import app.xpod.data.CloudMemosHttpException
+import app.xpod.data.CloudMemosNotConfiguredException
+import app.xpod.data.CloudMemosProtocolException
+import app.xpod.data.CloudMemosRepository
 import app.xpod.data.DownloadRepository
 import app.xpod.data.EpisodeEntity
 import app.xpod.data.FeedHttpException
+import app.xpod.data.InvalidCloudMemosTokenException
+import app.xpod.data.InvalidCloudMemosUrlException
 import app.xpod.data.PodcastEntity
 import app.xpod.data.PodcastRepository
 import app.xpod.data.ReaderRepository
@@ -18,13 +29,16 @@ import app.xpod.data.SettingsRepository
 import app.xpod.data.SubscriptionRepository
 import app.xpod.data.ThemeMode
 import app.xpod.data.UnsupportedFeedUrlException
+import app.xpod.data.defaultTabOrder
 import app.xpod.playback.PlaybackController
 import app.xpod.util.runCatchingCancellable
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.IOException
+import java.util.Locale
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -47,6 +61,29 @@ data class MainUiState(
     val status: String? = null,
 )
 
+data class CloudMemosUiState(
+    val baseUrl: String = "",
+    val isConfigured: Boolean = false,
+    val isBusy: Boolean = false,
+)
+
+data class MemosUiState(
+    val items: List<CloudMemo> = emptyList(),
+    val draft: String = "",
+    val query: String = "",
+    val appliedQuery: String = "",
+    val selectedTag: String? = null,
+    val appliedTag: String? = null,
+    val knownTags: List<String> = emptyList(),
+    val visibility: CloudMemoVisibility = CloudMemoVisibility.Private,
+    val nextCursor: String? = null,
+    val hasLoaded: Boolean = false,
+    val isRefreshing: Boolean = false,
+    val isLoadingMore: Boolean = false,
+    val isCreating: Boolean = false,
+    val error: String? = null,
+)
+
 @HiltViewModel
 class MainViewModel
 @Inject
@@ -56,12 +93,19 @@ constructor(
     private val subscriptions: SubscriptionRepository,
     private val downloads: DownloadRepository,
     private val settings: SettingsRepository,
+    private val cloudMemos: CloudMemosRepository,
     private val player: PlaybackController,
     @param:ApplicationContext private val context: Context,
 ) : ViewModel() {
   private val selected = MutableStateFlow<String?>(null)
   private val status = MutableStateFlow<String?>(null)
   private val refreshingArticles = MutableStateFlow(false)
+  private val cloudMemosBusy = MutableStateFlow(false)
+  private val _memosState = MutableStateFlow(MemosUiState())
+  private var memosLoadJob: Job? = null
+  private var memosCreateJob: Job? = null
+  private var memosAccountGeneration = 0L
+  private var memosLoadGeneration = 0L
   @OptIn(ExperimentalCoroutinesApi::class)
   private val episodes = selected.flatMapLatest { id ->
     if (id == null) kotlinx.coroutines.flow.flowOf(emptyList()) else podcasts.episodes(id)
@@ -108,6 +152,28 @@ constructor(
           viewModelScope,
           SharingStarted.WhileSubscribed(5_000),
           true,
+      )
+  val cloudMemosState: StateFlow<CloudMemosUiState> =
+      combine(cloudMemos.connection, cloudMemosBusy) { connection, busy ->
+            connection.toUiState(busy)
+          }
+          .stateIn(
+              viewModelScope,
+              SharingStarted.WhileSubscribed(5_000),
+              CloudMemosUiState(),
+          )
+  val memosState: StateFlow<MemosUiState> = _memosState
+  val tabOrder: StateFlow<List<AppTab>> =
+      settings.tabOrder.stateIn(
+          viewModelScope,
+          SharingStarted.WhileSubscribed(5_000),
+          defaultTabOrder,
+      )
+  val enabledTabs: StateFlow<Set<AppTab>> =
+      settings.enabledTabs.stateIn(
+          viewModelScope,
+          SharingStarted.WhileSubscribed(5_000),
+          defaultTabOrder.toSet(),
       )
   val nowPlaying = player.nowPlaying
   val queue = player.queue
@@ -344,6 +410,249 @@ constructor(
     settings.setWifiOnlyDownloads(enabled)
   }
 
+  fun moveTab(tab: AppTab, offset: Int) = viewModelScope.launch {
+    settings.moveTab(tab, offset)
+  }
+
+  fun setTabEnabled(tab: AppTab, enabled: Boolean) = viewModelScope.launch {
+    settings.setTabEnabled(tab, enabled)
+  }
+
+  fun configureCloudMemos(baseUrl: String, token: String, onSuccess: () -> Unit = {}) =
+      viewModelScope.launch {
+        if (cloudMemosBusy.value) return@launch
+        cloudMemosBusy.value = true
+        cancelMemosOperations()
+        try {
+          runCatchingCancellable { cloudMemos.configure(baseUrl, token.ifBlank { null }) }
+              .fold(
+                  {
+                    _memosState.value = MemosUiState()
+                    status.value = context.getString(R.string.cloud_memos_connected)
+                    onSuccess()
+                  },
+                  { error ->
+                    status.value =
+                        context.getString(
+                            R.string.cloud_memos_connection_failed_reason,
+                            cloudMemosFailureReason(error),
+                        )
+                  },
+              )
+        } finally {
+          cloudMemosBusy.value = false
+        }
+      }
+
+  fun disconnectCloudMemos() = viewModelScope.launch {
+    if (cloudMemosBusy.value) return@launch
+    cloudMemosBusy.value = true
+    cancelMemosOperations()
+    try {
+      cloudMemos.disconnect()
+      _memosState.value = MemosUiState()
+      status.value = context.getString(R.string.cloud_memos_disconnected)
+    } finally {
+      cloudMemosBusy.value = false
+    }
+  }
+
+  fun saveEpisodeToCloudMemos(episode: EpisodeEntity, podcastTitle: String?) =
+      saveToCloudMemos(CloudMemoDrafts.episode(episode, podcastTitle))
+
+  fun saveArticleToCloudMemos(article: ArticleEntity, feedTitle: String?) =
+      saveToCloudMemos(CloudMemoDrafts.article(article, feedTitle))
+
+  fun setMemoDraft(value: String) {
+    _memosState.value = _memosState.value.copy(draft = value.take(MAX_MEMO_CHARACTERS))
+  }
+
+  fun setMemoQuery(value: String) {
+    _memosState.value = _memosState.value.copy(query = value.take(MAX_MEMO_QUERY_CHARACTERS))
+  }
+
+  fun selectMemoTag(value: String?) {
+    val tag = value?.trim()?.take(MAX_MEMO_TAG_CHARACTERS)?.takeIf(String::isNotEmpty)
+    if (_memosState.value.selectedTag == tag) return
+    _memosState.value = _memosState.value.copy(selectedTag = tag)
+    startMemosLoad(reset = true)
+  }
+
+  fun setMemoVisibility(value: CloudMemoVisibility) {
+    _memosState.value = _memosState.value.copy(visibility = value)
+  }
+
+  fun loadMemos() {
+    if (_memosState.value.hasLoaded) return
+    refreshMemos()
+  }
+
+  fun refreshMemos() = startMemosLoad(reset = true)
+
+  fun searchMemos() = startMemosLoad(reset = true)
+
+  fun loadMoreMemos() {
+    val current = _memosState.value
+    if (current.isRefreshing || current.isLoadingMore || current.nextCursor == null) return
+    startMemosLoad(reset = false)
+  }
+
+  fun createMemo() {
+    val current = _memosState.value
+    val content = current.draft.trim()
+    if (content.isEmpty() || current.isCreating) return
+    _memosState.value = current.copy(isCreating = true, error = null)
+    val accountGeneration = memosAccountGeneration
+    memosCreateJob = viewModelScope.launch {
+      val result = cloudMemos.createMemo(content, current.visibility)
+      if (accountGeneration != memosAccountGeneration) return@launch
+      result.fold(
+          {
+            _memosState.value = _memosState.value.copy(draft = "", isCreating = false)
+            status.value = context.getString(R.string.cloud_memos_saved)
+            startMemosLoad(reset = true)
+          },
+          { error ->
+            _memosState.value =
+                _memosState.value.copy(
+                    isCreating = false,
+                    error =
+                        context.getString(
+                            R.string.cloud_memos_save_failed_reason,
+                            cloudMemosFailureReason(error),
+                        ),
+                )
+          },
+      )
+    }
+  }
+
+  private fun startMemosLoad(reset: Boolean) {
+    memosLoadJob?.cancel()
+    val accountGeneration = memosAccountGeneration
+    val loadGeneration = ++memosLoadGeneration
+    _memosState.value = _memosState.value.copy(isRefreshing = false, isLoadingMore = false)
+    memosLoadJob = viewModelScope.launch { fetchMemos(reset, accountGeneration, loadGeneration) }
+  }
+
+  private suspend fun fetchMemos(
+      reset: Boolean,
+      accountGeneration: Long,
+      loadGeneration: Long,
+  ) {
+    val current = _memosState.value
+    if (current.isRefreshing || current.isLoadingMore) return
+    if (!reset && current.nextCursor == null) return
+    _memosState.value =
+        current.copy(
+            isRefreshing = reset,
+            isLoadingMore = !reset,
+            error = null,
+            nextCursor = if (reset) null else current.nextCursor,
+        )
+    val requestQuery = if (reset) current.query.trim() else current.appliedQuery
+    val requestTag = if (reset) current.selectedTag else current.appliedTag
+    val result =
+        cloudMemos.listMemos(
+            query = requestQuery.takeIf(String::isNotEmpty),
+            tag = requestTag,
+            cursor = if (reset) null else current.nextCursor,
+        )
+    if (accountGeneration != memosAccountGeneration || loadGeneration != memosLoadGeneration) {
+      return
+    }
+    result.fold(
+        { page ->
+          _memosState.value =
+              _memosState.value.copy(
+                  items =
+                      if (reset) page.items else (current.items + page.items).distinctBy { it.id },
+                  appliedQuery = if (reset) requestQuery else current.appliedQuery,
+                  appliedTag = if (reset) requestTag else current.appliedTag,
+                  knownTags =
+                      (_memosState.value.knownTags + page.items.flatMap { it.tags })
+                          .distinctBy { it.lowercase(Locale.ROOT) }
+                          .sortedBy { it.lowercase(Locale.ROOT) },
+                  nextCursor = page.nextCursor,
+                  hasLoaded = true,
+                  isRefreshing = false,
+                  isLoadingMore = false,
+              )
+        },
+        { error ->
+          _memosState.value =
+              _memosState.value.copy(
+                  isRefreshing = false,
+                  isLoadingMore = false,
+                  nextCursor = current.nextCursor,
+                  error =
+                      context.getString(
+                          R.string.cloud_memos_load_failed_reason,
+                          cloudMemosFailureReason(error),
+                      ),
+              )
+        },
+    )
+  }
+
+  private fun cancelMemosOperations() {
+    memosAccountGeneration++
+    memosLoadGeneration++
+    memosLoadJob?.cancel()
+    memosLoadJob = null
+    memosCreateJob?.cancel()
+    memosCreateJob = null
+    _memosState.value =
+        _memosState.value.copy(
+            isRefreshing = false,
+            isLoadingMore = false,
+            isCreating = false,
+        )
+  }
+
+  private fun saveToCloudMemos(content: String) = viewModelScope.launch {
+    if (cloudMemosBusy.value) return@launch
+    cloudMemosBusy.value = true
+    try {
+      cloudMemos
+          .createMemo(content)
+          .fold(
+              { status.value = context.getString(R.string.cloud_memos_saved) },
+              { error ->
+                status.value =
+                    context.getString(
+                        R.string.cloud_memos_save_failed_reason,
+                        cloudMemosFailureReason(error),
+                    )
+              },
+          )
+    } finally {
+      cloudMemosBusy.value = false
+    }
+  }
+
+  private fun cloudMemosFailureReason(error: Throwable): String =
+      when (error) {
+        is InvalidCloudMemosUrlException ->
+            context.getString(R.string.cloud_memos_error_https_required)
+        is InvalidCloudMemosTokenException -> context.getString(R.string.cloud_memos_error_token)
+        is CloudMemosNotConfiguredException ->
+            context.getString(R.string.cloud_memos_error_not_configured)
+        is CloudMemosHttpException ->
+            when {
+              error.statusCode == 401 || error.errorCode == "INVALID_API_TOKEN" ->
+                  context.getString(R.string.cloud_memos_error_unauthorized)
+              error.errorCode == "INSUFFICIENT_SCOPE" ->
+                  context.getString(R.string.cloud_memos_error_scope)
+              error.statusCode >= 500 ->
+                  context.getString(R.string.cloud_memos_error_server, error.statusCode)
+              else -> context.getString(R.string.cloud_memos_error_http, error.statusCode)
+            }
+        is CloudMemosProtocolException -> context.getString(R.string.cloud_memos_error_response)
+        is IOException -> context.getString(R.string.cloud_memos_error_network)
+        else -> context.getString(R.string.cloud_memos_error_response)
+      }
+
   private fun feedFailureReason(error: Throwable): String =
       when (error) {
         is UnsupportedFeedUrlException -> context.getString(R.string.feed_error_https_required)
@@ -353,4 +662,13 @@ constructor(
         is IllegalArgumentException -> context.getString(R.string.feed_error_format)
         else -> context.getString(R.string.feed_error_format)
       }
+
+  private companion object {
+    const val MAX_MEMO_CHARACTERS = 100_000
+    const val MAX_MEMO_QUERY_CHARACTERS = 100
+    const val MAX_MEMO_TAG_CHARACTERS = 80
+  }
 }
+
+private fun CloudMemosConnection.toUiState(isBusy: Boolean): CloudMemosUiState =
+    CloudMemosUiState(baseUrl = baseUrl, isConfigured = isConfigured, isBusy = isBusy)

@@ -33,6 +33,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Language
@@ -91,6 +92,7 @@ internal fun ArticleReaderScreen(
     feedTitle: String?,
     setRead: (String, Boolean) -> Unit,
     toggleFavorite: (String) -> Unit,
+    saveToCloudMemos: (() -> Unit)?,
     onBack: () -> Unit,
 ) {
   val originalUrl = remember(article.url) { preferHttps(article.url) }
@@ -118,6 +120,14 @@ internal fun ArticleReaderScreen(
               }
             },
             actions = {
+              saveToCloudMemos?.let { save ->
+                IconButton(onClick = save) {
+                  Icon(
+                      Icons.Filled.CloudUpload,
+                      stringResource(R.string.save_to_cloud_memos),
+                  )
+                }
+              }
               IconButton(onClick = { setRead(article.id, !article.isRead) }) {
                 Icon(
                     imageVector = Icons.Filled.CheckCircle,

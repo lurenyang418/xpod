@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Error
@@ -35,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -378,6 +380,7 @@ internal fun EpisodeDetailScreen(
     onDownload: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
+    onSaveToCloudMemos: (() -> Unit)?,
 ) =
     LazyColumn(
         Modifier.fillMaxSize().padding(20.dp),
@@ -432,6 +435,17 @@ internal fun EpisodeDetailScreen(
           }
           IconButton(onClick = onAddToQueue) {
             Icon(Icons.AutoMirrored.Filled.QueueMusic, stringResource(R.string.add_to_queue))
+          }
+        }
+      }
+      onSaveToCloudMemos?.let { save ->
+        item {
+          OutlinedButton(onClick = save) {
+            Icon(Icons.Filled.CloudUpload, null)
+            Text(
+                stringResource(R.string.save_to_cloud_memos),
+                modifier = Modifier.padding(start = 8.dp),
+            )
           }
         }
       }

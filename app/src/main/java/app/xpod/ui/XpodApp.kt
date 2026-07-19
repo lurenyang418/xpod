@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Article
+import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.RssFeed
@@ -56,18 +57,12 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.xpod.R
+import app.xpod.data.AppTab
 import app.xpod.data.ArticleFeedEntity
 import app.xpod.data.EpisodeEntity
 import app.xpod.data.PodcastEntity
 import app.xpod.data.ThemeMode
 import app.xpod.playback.NowPlaying
-
-private enum class Destination {
-  Subscriptions,
-  Reader,
-  Library,
-  Settings,
-}
 
 @Composable
 fun XpodApp(viewModel: MainViewModel = hiltViewModel()) {
@@ -113,11 +108,16 @@ private fun XpodHome(
   val nowPlaying by viewModel.nowPlaying.collectAsStateWithLifecycle()
   val downloadStates by viewModel.downloadStates.collectAsStateWithLifecycle()
   val wifiOnlyDownloads by viewModel.wifiOnlyDownloads.collectAsStateWithLifecycle()
+  val cloudMemos by viewModel.cloudMemosState.collectAsStateWithLifecycle()
+  val memos by viewModel.memosState.collectAsStateWithLifecycle()
+  val tabOrder by viewModel.tabOrder.collectAsStateWithLifecycle()
+  val enabledTabs by viewModel.enabledTabs.collectAsStateWithLifecycle()
+  val visibleTabs = tabOrder.filter(enabledTabs::contains)
   val queue by viewModel.queue.collectAsStateWithLifecycle()
   val containerWidth = LocalWindowInfo.current.containerSize.width
   val wide = with(LocalDensity.current) { containerWidth.toDp() >= 600.dp }
   val snackbar = remember { SnackbarHostState() }
-  var destination by rememberSaveable { mutableStateOf(Destination.Subscriptions) }
+  var destination by rememberSaveable { mutableStateOf(AppTab.Podcasts) }
   var selectedEpisodeId by rememberSaveable { mutableStateOf<String?>(null) }
   var selectedArticleId by rememberSaveable { mutableStateOf<String?>(null) }
   val selectedEpisode = selectedEpisodeId?.let { id ->
@@ -133,6 +133,15 @@ private fun XpodHome(
   var showSpeedPicker by rememberSaveable { mutableStateOf(false) }
   var showQueue by rememberSaveable { mutableStateOf(false) }
   var confirmClearQueue by remember { mutableStateOf(false) }
+
+  LaunchedEffect(visibleTabs, destination) {
+    if (destination !in visibleTabs) {
+      destination = AppTab.Settings
+      selectedEpisodeId = null
+      selectedArticleId = null
+      viewModel.selectPodcast(null)
+    }
+  }
   val handleDownload: (EpisodeEntity) -> Unit = { episode ->
     if (downloadStates[episode.id]?.isCompleted == true) {
       downloadToRemove = episode
@@ -153,7 +162,7 @@ private fun XpodHome(
       fullPlayer -> fullPlayer = false
       selectedEpisode != null -> selectedEpisodeId = null
       selectedArticleId != null -> selectedArticleId = null
-      destination == Destination.Subscriptions && state.selectedPodcastId != null ->
+      destination == AppTab.Podcasts && state.selectedPodcastId != null ->
           viewModel.selectPodcast(null)
     }
   }
@@ -162,7 +171,7 @@ private fun XpodHome(
           fullPlayer ||
               selectedEpisode != null ||
               selectedArticleId != null ||
-              destination == Destination.Subscriptions && state.selectedPodcastId != null,
+              destination == AppTab.Podcasts && state.selectedPodcastId != null,
       onBack = back,
   )
   val content: @Composable () -> Unit = {
@@ -181,7 +190,7 @@ private fun XpodHome(
                 onSkipForward = { viewModel.seekBy(30_000L) },
                 onShowSpeedPicker = { showSpeedPicker = true },
                 onOpenPodcast = {
-                  destination = Destination.Subscriptions
+                  destination = AppTab.Podcasts
                   fullPlayer = false
                   viewModel.selectPodcast(playing.episode.podcastId)
                 },
@@ -206,6 +215,17 @@ private fun XpodHome(
             onDownload = { handleDownload(episode) },
             onPlayNext = { viewModel.playNext(episode) },
             onAddToQueue = { viewModel.addToQueue(episode) },
+            onSaveToCloudMemos =
+                if (cloudMemos.isConfigured && !cloudMemos.isBusy) {
+                  {
+                    viewModel.saveEpisodeToCloudMemos(
+                        episode,
+                        state.podcasts.firstOrNull { it.id == episode.podcastId }?.title,
+                    )
+                  }
+                } else {
+                  null
+                },
         )
       }
       selectedArticle != null ->
@@ -214,9 +234,20 @@ private fun XpodHome(
               feedTitle = state.articleFeeds.firstOrNull { it.id == selectedArticle.feedId }?.title,
               setRead = viewModel::setArticleRead,
               toggleFavorite = viewModel::toggleArticleFavorite,
+              saveToCloudMemos =
+                  if (cloudMemos.isConfigured && !cloudMemos.isBusy) {
+                    {
+                      viewModel.saveArticleToCloudMemos(
+                          selectedArticle,
+                          state.articleFeeds.firstOrNull { it.id == selectedArticle.feedId }?.title,
+                      )
+                    }
+                  } else {
+                    null
+                  },
               onBack = { selectedArticleId = null },
           )
-      destination == Destination.Subscriptions ->
+      destination == AppTab.Podcasts ->
           SubscriptionScreen(
               state = state,
               wide = wide,
@@ -239,9 +270,9 @@ private fun XpodHome(
               addToQueue = viewModel::addToQueue,
               showQueue = { showQueue = true },
               delete = { podcastToDelete = it },
-              openSettings = { destination = Destination.Settings },
+              openSettings = { destination = AppTab.Settings },
           )
-      destination == Destination.Library ->
+      destination == AppTab.Library ->
           LibraryScreen(
               state = state,
               play = {
@@ -260,7 +291,7 @@ private fun XpodHome(
               },
               addToQueue = viewModel::addToQueue,
           )
-      destination == Destination.Reader ->
+      destination == AppTab.Reader ->
           ReaderScreen(
               state = state,
               refresh = viewModel::refreshArticles,
@@ -272,11 +303,27 @@ private fun XpodHome(
               toggleFavorite = viewModel::toggleArticleFavorite,
               delete = { articleFeedToDelete = it },
           )
+      destination == AppTab.Memos ->
+          MemosScreen(
+              state = memos,
+              isConfigured = cloudMemos.isConfigured,
+              openSettings = { destination = AppTab.Settings },
+              load = viewModel::loadMemos,
+              refresh = viewModel::refreshMemos,
+              loadMore = viewModel::loadMoreMemos,
+              setDraft = viewModel::setMemoDraft,
+              setQuery = viewModel::setMemoQuery,
+              setVisibility = viewModel::setMemoVisibility,
+              selectTag = viewModel::selectMemoTag,
+              create = viewModel::createMemo,
+              search = viewModel::searchMemos,
+          )
       else ->
           SettingsScreen(
               theme = theme,
               dynamicColor = dynamic,
               wifiOnlyDownloads = wifiOnlyDownloads,
+              cloudMemos = cloudMemos,
               setTheme = viewModel::setAppTheme,
               setDynamicColor = viewModel::setDynamicColor,
               setWifiOnlyDownloads = viewModel::setWifiOnlyDownloads,
@@ -284,6 +331,12 @@ private fun XpodHome(
               add = { url, onSuccess -> viewModel.addFeed(url, onSuccess) },
               importOpml = viewModel::importOpml,
               exportOpml = viewModel::exportOpml,
+              configureCloudMemos = viewModel::configureCloudMemos,
+              disconnectCloudMemos = viewModel::disconnectCloudMemos,
+              tabOrder = tabOrder,
+              enabledTabs = enabledTabs,
+              moveTab = viewModel::moveTab,
+              setTabEnabled = viewModel::setTabEnabled,
           )
     }
   }
@@ -293,9 +346,7 @@ private fun XpodHome(
             show =
                 fullPlayer ||
                     selectedEpisode != null ||
-                    !wide &&
-                        destination == Destination.Subscriptions &&
-                        state.selectedPodcastId != null,
+                    !wide && destination == AppTab.Podcasts && state.selectedPodcastId != null,
             fullPlayer = fullPlayer,
             selectedEpisode = selectedEpisode,
             onBack = back,
@@ -307,6 +358,7 @@ private fun XpodHome(
             visible = !wide && !fullPlayer && selectedArticleId == null,
             nowPlaying = nowPlaying,
             destination = destination,
+            tabOrder = visibleTabs,
             onDestinationSelected = {
               destination = it
               selectedEpisodeId = null
@@ -323,9 +375,9 @@ private fun XpodHome(
   ) { padding ->
     Box(Modifier.fillMaxSize().padding(padding)) {
       Row(Modifier.fillMaxSize()) {
-        if (wide && selectedArticleId == null)
+        if (wide && selectedArticleId == null && !fullPlayer)
             NavigationRail {
-              Destination.entries.forEach { item ->
+              visibleTabs.forEach { item ->
                 NavigationRailItem(
                     selected = item == destination,
                     onClick = {
@@ -441,8 +493,9 @@ private fun HomeTopBar(
 private fun HomeBottomBar(
     visible: Boolean,
     nowPlaying: NowPlaying?,
-    destination: Destination,
-    onDestinationSelected: (Destination) -> Unit,
+    destination: AppTab,
+    tabOrder: List<AppTab>,
+    onDestinationSelected: (AppTab) -> Unit,
     onToggle: () -> Unit,
     onOpenPlayer: () -> Unit,
     onShowSpeedPicker: () -> Unit,
@@ -451,7 +504,7 @@ private fun HomeBottomBar(
   Column {
     nowPlaying?.let { MiniPlayer(it, onToggle, onOpenPlayer, onShowSpeedPicker) }
     NavigationBar {
-      Destination.entries.forEach { item ->
+      tabOrder.forEach { item ->
         NavigationBarItem(
             selected = item == destination,
             onClick = { onDestinationSelected(item) },
@@ -541,21 +594,23 @@ private fun HomeDialogs(
 }
 
 @Composable
-private fun DestinationIcon(destination: Destination) =
+private fun DestinationIcon(destination: AppTab) =
     when (destination) {
-      Destination.Subscriptions -> Icon(Icons.Filled.RssFeed, null)
-      Destination.Reader -> Icon(Icons.AutoMirrored.Filled.Article, null)
-      Destination.Library -> Icon(Icons.Filled.LibraryMusic, null)
-      Destination.Settings -> Icon(Icons.Filled.Settings, null)
+      AppTab.Podcasts -> Icon(Icons.Filled.RssFeed, null)
+      AppTab.Reader -> Icon(Icons.AutoMirrored.Filled.Article, null)
+      AppTab.Library -> Icon(Icons.Filled.LibraryMusic, null)
+      AppTab.Memos -> Icon(Icons.AutoMirrored.Filled.Notes, null)
+      AppTab.Settings -> Icon(Icons.Filled.Settings, null)
     }
 
 @Composable
-private fun destinationLabel(destination: Destination): String =
+private fun destinationLabel(destination: AppTab): String =
     stringResource(
         when (destination) {
-          Destination.Subscriptions -> R.string.podcasts
-          Destination.Reader -> R.string.reader
-          Destination.Library -> R.string.library
-          Destination.Settings -> R.string.settings
+          AppTab.Podcasts -> R.string.podcasts
+          AppTab.Reader -> R.string.reader
+          AppTab.Library -> R.string.library
+          AppTab.Memos -> R.string.memos
+          AppTab.Settings -> R.string.settings
         }
     )
