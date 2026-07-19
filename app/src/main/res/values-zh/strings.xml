@@ -149,6 +149,9 @@
     <string name="cloud_memos_not_connected">尚未连接 Cloud Memos</string>
     <string name="cloud_memos_not_connected_summary">请先在设置中连接实例，再创建和浏览 Memo。</string>
     <string name="refresh_memos">刷新 Memos</string>
+    <plurals name="showing_memos_count">
+        <item quantity="other">当前显示 %1$d 条 Memos</item>
+    </plurals>
     <string name="search_memos">搜索 Memos</string>
     <string name="search">搜索</string>
     <string name="no_memos">没有符合当前搜索条件的 Memo。</string>
@@ -173,4 +176,12 @@
     <string name="markdown_preview_empty">输入 Markdown 后即可预览。</string>
     <string name="expand_memo">展开全文</string>
     <string name="collapse_memo">收起</string>
+    <string name="copy_markdown">复制 Markdown</string>
+    <string name="cloud_memo_markdown">Cloud Memo Markdown</string>
+    <string name="share_memo">分享 Memo 链接</string>
+    <string name="share_unavailable">没有可用于分享此 Memo 的应用</string>
+    <string name="member_memo_share_text">仅成员可见的 Cloud Memo（需要登录此实例后查看）：\n%1$s</string>
+    <string name="share_markdown">分享 Markdown</string>
+    <string name="share_private_memo_title">分享私有 Memo 内容？</string>
+    <string name="share_private_memo_message">这会将 Markdown 内容发送到其他应用，Cloud Memos 的访问控制将不再生效。</string>
 </resources>

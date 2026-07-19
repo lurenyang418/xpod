@@ -105,6 +105,14 @@ internal fun normalizeCloudMemosUrl(value: String): HttpUrl {
   return parsed.newBuilder().encodedPath(if (path.isEmpty()) "/" else "$path/").build()
 }
 
+internal fun cloudMemoWebUrl(baseUrl: String, memoId: String): String =
+    normalizeCloudMemosUrl(baseUrl)
+        .newBuilder()
+        .addPathSegment("m")
+        .addPathSegment(memoId)
+        .build()
+        .toString()
+
 @Singleton
 class CloudMemosApi @Inject constructor(private val client: OkHttpClient) {
   suspend fun verify(baseUrl: HttpUrl, token: String) {

@@ -1,7 +1,14 @@
 package app.xpod.ui
 
 import android.Manifest
+import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.PersistableBundle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -44,12 +51,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -59,10 +68,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.xpod.R
 import app.xpod.data.AppTab
 import app.xpod.data.ArticleFeedEntity
+import app.xpod.data.CloudMemo
+import app.xpod.data.CloudMemoVisibility
 import app.xpod.data.EpisodeEntity
 import app.xpod.data.PodcastEntity
 import app.xpod.data.ThemeMode
+import app.xpod.data.cloudMemoWebUrl
 import app.xpod.playback.NowPlaying
+import kotlinx.coroutines.launch
 
 @Composable
 fun XpodApp(viewModel: MainViewModel = hiltViewModel()) {
@@ -104,6 +117,8 @@ private fun XpodHome(
     dynamic: Boolean,
     requestNotificationPermission: () -> Unit,
 ) {
+  val context = LocalContext.current
+  val resources = LocalResources.current
   val state by viewModel.state.collectAsStateWithLifecycle()
   val nowPlaying by viewModel.nowPlaying.collectAsStateWithLifecycle()
   val downloadStates by viewModel.downloadStates.collectAsStateWithLifecycle()
@@ -117,6 +132,69 @@ private fun XpodHome(
   val containerWidth = LocalWindowInfo.current.containerSize.width
   val wide = with(LocalDensity.current) { containerWidth.toDp() >= 600.dp }
   val snackbar = remember { SnackbarHostState() }
+  val coroutineScope = rememberCoroutineScope()
+  val memosComposerActions =
+      remember(viewModel) {
+        MemosComposerActions(
+            setDraft = viewModel::setMemoDraft,
+            setVisibility = viewModel::setMemoVisibility,
+            create = viewModel::createMemo,
+        )
+      }
+  val memosListActions =
+      remember(viewModel) {
+        MemosListActions(
+            load = viewModel::loadMemos,
+            refresh = viewModel::refreshMemos,
+            loadMore = viewModel::loadMoreMemos,
+            setQuery = viewModel::setMemoQuery,
+            selectTag = viewModel::selectMemoTag,
+            search = viewModel::searchMemos,
+        )
+      }
+  val memosShareActions =
+      remember(viewModel, context, resources, cloudMemos.baseUrl, coroutineScope, snackbar) {
+        MemosShareActions(
+            copyMemo = { memo -> copyMemoMarkdown(context, memo) },
+            shareMemoLink = { memo ->
+              val url = cloudMemoWebUrl(cloudMemos.baseUrl, memo.id)
+              val text =
+                  if (memo.visibility == CloudMemoVisibility.Members) {
+                    resources.getString(R.string.member_memo_share_text, url)
+                  } else {
+                    url
+                  }
+              if (
+                  !shareText(
+                      context = context,
+                      text = text,
+                      chooserTitle = resources.getString(R.string.share_memo),
+                  )
+              ) {
+                coroutineScope.launch {
+                  snackbar.showSnackbar(resources.getString(R.string.share_unavailable))
+                }
+              }
+            },
+            requestPrivateMemoShare = viewModel::requestPrivateMemoShare,
+            dismissPrivateMemoShare = viewModel::dismissPrivateMemoShare,
+            sharePrivateMemoContent = { memo ->
+              if (memo.visibility == CloudMemoVisibility.Private) {
+                if (
+                    !shareText(
+                        context = context,
+                        text = memo.content,
+                        chooserTitle = resources.getString(R.string.share_markdown),
+                    )
+                ) {
+                  coroutineScope.launch {
+                    snackbar.showSnackbar(resources.getString(R.string.share_unavailable))
+                  }
+                }
+              }
+            },
+        )
+      }
   var destination by rememberSaveable { mutableStateOf(AppTab.Podcasts) }
   var selectedEpisodeId by rememberSaveable { mutableStateOf<String?>(null) }
   var selectedArticleId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -141,6 +219,9 @@ private fun XpodHome(
       selectedArticleId = null
       viewModel.selectPodcast(null)
     }
+  }
+  LaunchedEffect(destination) {
+    if (destination != AppTab.Memos) viewModel.dismissPrivateMemoShare()
   }
   val handleDownload: (EpisodeEntity) -> Unit = { episode ->
     if (downloadStates[episode.id]?.isCompleted == true) {
@@ -308,15 +389,9 @@ private fun XpodHome(
               state = memos,
               isConfigured = cloudMemos.isConfigured,
               openSettings = { destination = AppTab.Settings },
-              load = viewModel::loadMemos,
-              refresh = viewModel::refreshMemos,
-              loadMore = viewModel::loadMoreMemos,
-              setDraft = viewModel::setMemoDraft,
-              setQuery = viewModel::setMemoQuery,
-              setVisibility = viewModel::setMemoVisibility,
-              selectTag = viewModel::selectMemoTag,
-              create = viewModel::createMemo,
-              search = viewModel::searchMemos,
+              composerActions = memosComposerActions,
+              listActions = memosListActions,
+              shareActions = memosShareActions,
           )
       else ->
           SettingsScreen(
@@ -592,6 +667,30 @@ private fun HomeDialogs(
     )
   }
 }
+
+private fun copyMemoMarkdown(context: Context, memo: CloudMemo) {
+  val clip = ClipData.newPlainText(context.getString(R.string.cloud_memo_markdown), memo.content)
+  if (memo.visibility == CloudMemoVisibility.Private) {
+    clip.description.extras =
+        PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
+  }
+  context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
+}
+
+private fun shareText(context: Context, text: String, chooserTitle: String): Boolean =
+    try {
+      val intent =
+          Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+          }
+      context.startActivity(Intent.createChooser(intent, chooserTitle))
+      true
+    } catch (_: ActivityNotFoundException) {
+      false
+    } catch (_: SecurityException) {
+      false
+    }
 
 @Composable
 private fun DestinationIcon(destination: AppTab) =

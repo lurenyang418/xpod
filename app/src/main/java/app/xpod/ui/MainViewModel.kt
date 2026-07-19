@@ -81,6 +81,7 @@ data class MemosUiState(
     val isRefreshing: Boolean = false,
     val isLoadingMore: Boolean = false,
     val isCreating: Boolean = false,
+    val pendingPrivateShareMemoId: String? = null,
     val error: String? = null,
 )
 
@@ -482,6 +483,23 @@ constructor(
     _memosState.value = _memosState.value.copy(visibility = value)
   }
 
+  fun requestPrivateMemoShare(memoId: String) {
+    val current = _memosState.value
+    if (
+        current.items.none { memo ->
+          memo.id == memoId && memo.visibility == CloudMemoVisibility.Private
+        }
+    ) {
+      return
+    }
+    _memosState.value = current.copy(pendingPrivateShareMemoId = memoId)
+  }
+
+  fun dismissPrivateMemoShare() {
+    if (_memosState.value.pendingPrivateShareMemoId == null) return
+    _memosState.value = _memosState.value.copy(pendingPrivateShareMemoId = null)
+  }
+
   fun loadMemos() {
     if (_memosState.value.hasLoaded) return
     refreshMemos()
@@ -577,6 +595,8 @@ constructor(
                   hasLoaded = true,
                   isRefreshing = false,
                   isLoadingMore = false,
+                  pendingPrivateShareMemoId =
+                      if (reset) null else _memosState.value.pendingPrivateShareMemoId,
               )
         },
         { error ->

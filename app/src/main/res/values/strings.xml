@@ -153,6 +153,10 @@
     <string name="cloud_memos_not_connected">Cloud Memos is not connected</string>
     <string name="cloud_memos_not_connected_summary">Connect an instance in Settings to create and browse your memos.</string>
     <string name="refresh_memos">Refresh memos</string>
+    <plurals name="showing_memos_count">
+        <item quantity="one">Showing %1$d memo</item>
+        <item quantity="other">Showing %1$d memos</item>
+    </plurals>
     <string name="search_memos">Search memos</string>
     <string name="search">Search</string>
     <string name="no_memos">No memos match the current search.</string>
@@ -177,4 +181,12 @@
     <string name="markdown_preview_empty">Write some Markdown to preview it.</string>
     <string name="expand_memo">Show more</string>
     <string name="collapse_memo">Show less</string>
+    <string name="copy_markdown">Copy Markdown</string>
+    <string name="cloud_memo_markdown">Cloud Memo Markdown</string>
+    <string name="share_memo">Share memo link</string>
+    <string name="share_unavailable">No app is available to share this memo</string>
+    <string name="member_memo_share_text">Members-only Cloud Memo (sign in to this instance to view):\n%1$s</string>
+    <string name="share_markdown">Share Markdown</string>
+    <string name="share_private_memo_title">Share private memo content?</string>
+    <string name="share_private_memo_message">This sends the Markdown content to another app. Cloud Memos access controls will no longer apply.</string>
 </resources>

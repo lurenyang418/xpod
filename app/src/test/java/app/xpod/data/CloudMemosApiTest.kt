@@ -33,6 +33,22 @@ class CloudMemosApiTest {
   }
 
   @Test
+  fun memoWebUrlPreservesInstancePathAndEncodesMemoId() {
+    assertEquals(
+        "https://memos.example.com/base/m/memo%2Fid",
+        cloudMemoWebUrl("https://memos.example.com/base", "memo/id"),
+    )
+  }
+
+  @Test
+  fun memoWebUrlSupportsRootInstanceUrl() {
+    assertEquals(
+        "https://memos.example.com/m/memo-id",
+        cloudMemoWebUrl("https://memos.example.com", "memo-id"),
+    )
+  }
+
+  @Test
   fun verifyChecksReadAndWriteAccessWithoutCreatingAMemo() = runTest {
     val requests = mutableListOf<Request>()
     val api =
