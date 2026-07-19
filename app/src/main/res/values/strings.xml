@@ -141,6 +141,7 @@
     <string name="cloud_memos_error_https_required">Enter a valid HTTPS instance URL</string>
     <string name="cloud_memos_error_token">Enter a valid cm_pat_ API token</string>
     <string name="cloud_memos_error_not_configured">Configure a connection in Settings first</string>
+    <string name="cloud_memos_error_recycle_bin_required">Upgrade Cloud Memos to v0.3.0 or newer before deleting memos</string>
     <string name="cloud_memos_error_unauthorized">The API token is invalid, expired, or revoked</string>
     <string name="cloud_memos_error_scope">The API token needs read-write permission</string>
     <string name="cloud_memos_error_network">The network request failed</string>
@@ -189,4 +190,17 @@
     <string name="share_markdown">Share Markdown</string>
     <string name="share_private_memo_title">Share private memo content?</string>
     <string name="share_private_memo_message">This sends the Markdown content to another app. Cloud Memos access controls will no longer apply.</string>
+    <string name="memo_actions">More memo actions</string>
+    <string name="archive_memo">Archive memo</string>
+    <string name="cloud_memo_archived">Memo archived</string>
+    <string name="undo">Undo</string>
+    <string name="cloud_memo_archive_undone">Memo restored from the archive</string>
+    <string name="move_memo_to_trash">Move to trash</string>
+    <string name="move_memo_to_trash_title">Move this memo to trash?</string>
+    <string name="move_memo_to_trash_message">It will remain in Cloud Memos trash for 30 days and can be restored there.</string>
+    <string name="cloud_memo_moved_to_trash">Memo moved to trash</string>
+    <string name="cloud_memo_archive_failed_reason">Could not archive the memo: %1$s</string>
+    <string name="cloud_memo_restore_failed_reason">Could not restore the memo: %1$s</string>
+    <string name="cloud_memo_delete_failed_reason">Could not move the memo to trash: %1$s</string>
+    <string name="cloud_memo_version_conflict">This memo changed elsewhere. The list was refreshed.</string>
 </resources>

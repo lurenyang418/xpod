@@ -137,6 +137,7 @@
     <string name="cloud_memos_error_https_required">请输入有效的 HTTPS 实例地址</string>
     <string name="cloud_memos_error_token">请输入有效的 cm_pat_ API 令牌</string>
     <string name="cloud_memos_error_not_configured">请先在设置中完成连接</string>
+    <string name="cloud_memos_error_recycle_bin_required">删除 Memo 前，请先将 Cloud Memos 升级到 v0.3.0 或更高版本</string>
     <string name="cloud_memos_error_unauthorized">API 令牌无效、已过期或已撤销</string>
     <string name="cloud_memos_error_scope">API 令牌需要读写权限</string>
     <string name="cloud_memos_error_network">网络请求失败</string>
@@ -184,4 +185,17 @@
     <string name="share_markdown">分享 Markdown</string>
     <string name="share_private_memo_title">分享私有 Memo 内容？</string>
     <string name="share_private_memo_message">这会将 Markdown 内容发送到其他应用，Cloud Memos 的访问控制将不再生效。</string>
+    <string name="memo_actions">更多 Memo 操作</string>
+    <string name="archive_memo">归档 Memo</string>
+    <string name="cloud_memo_archived">Memo 已归档</string>
+    <string name="undo">撤销</string>
+    <string name="cloud_memo_archive_undone">Memo 已恢复到当前列表</string>
+    <string name="move_memo_to_trash">移到回收站</string>
+    <string name="move_memo_to_trash_title">将这条 Memo 移到回收站？</string>
+    <string name="move_memo_to_trash_message">内容将在 Cloud Memos 回收站保留 30 天，期间可在那里恢复。</string>
+    <string name="cloud_memo_moved_to_trash">Memo 已移到回收站</string>
+    <string name="cloud_memo_archive_failed_reason">无法归档 Memo：%1$s</string>
+    <string name="cloud_memo_restore_failed_reason">无法恢复 Memo：%1$s</string>
+    <string name="cloud_memo_delete_failed_reason">无法将 Memo 移到回收站：%1$s</string>
+    <string name="cloud_memo_version_conflict">这条 Memo 已在其他位置更新，列表已刷新。</string>
 </resources>

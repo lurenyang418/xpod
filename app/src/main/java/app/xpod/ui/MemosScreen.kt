@@ -22,10 +22,13 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -37,6 +40,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
@@ -116,6 +121,14 @@ internal data class MemosShareActions(
     val sharePrivateMemoContent: (CloudMemo) -> Unit,
 )
 
+@Immutable
+internal data class MemosManageActions(
+    val archiveMemo: (String) -> Unit,
+    val requestDelete: (String) -> Unit,
+    val dismissDelete: () -> Unit,
+    val moveToTrash: (String) -> Unit,
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MemosScreen(
@@ -125,6 +138,7 @@ internal fun MemosScreen(
     composerActions: MemosComposerActions,
     listActions: MemosListActions,
     shareActions: MemosShareActions,
+    manageActions: MemosManageActions,
 ) {
   LaunchedEffect(isConfigured) {
     if (isConfigured) listActions.load()
@@ -260,8 +274,10 @@ internal fun MemosScreen(
       items(state.items, key = CloudMemo::id) { memo ->
         MemoCard(
             memo = memo,
+            isBusy = memo.id in state.busyMemoIds,
             selectTag = listActions.selectTag,
             shareActions = shareActions,
+            manageActions = manageActions,
         )
       }
       if (state.nextCursor != null) {
@@ -302,6 +318,29 @@ internal fun MemosScreen(
             },
             dismissButton = {
               TextButton(onClick = shareActions.dismissPrivateMemoShare) {
+                Text(stringResource(R.string.cancel))
+              }
+            },
+        )
+      }
+
+  state.pendingDeleteMemoId
+      ?.let { memoId -> state.items.firstOrNull { memo -> memo.id == memoId } }
+      ?.let { memo ->
+        AlertDialog(
+            onDismissRequest = manageActions.dismissDelete,
+            title = { Text(stringResource(R.string.move_memo_to_trash_title)) },
+            text = { Text(stringResource(R.string.move_memo_to_trash_message)) },
+            confirmButton = {
+              TextButton(onClick = { manageActions.moveToTrash(memo.id) }) {
+                Text(
+                    stringResource(R.string.move_memo_to_trash),
+                    color = MaterialTheme.colorScheme.error,
+                )
+              }
+            },
+            dismissButton = {
+              TextButton(onClick = manageActions.dismissDelete) {
                 Text(stringResource(R.string.cancel))
               }
             },
@@ -431,8 +470,10 @@ private fun MemoComposer(
 @Composable
 private fun MemoCard(
     memo: CloudMemo,
+    isBusy: Boolean,
     selectTag: (String?) -> Unit,
     shareActions: MemosShareActions,
+    manageActions: MemosManageActions,
 ) {
   val visibility = visibilityLabel(memo.visibility)
   val pinned = stringResource(R.string.pinned)
@@ -549,7 +590,61 @@ private fun MemoCard(
                   ),
           )
         }
+        MemoManageMenu(
+            isBusy = isBusy,
+            archiveMemo = { manageActions.archiveMemo(memo.id) },
+            requestDelete = { manageActions.requestDelete(memo.id) },
+        )
       }
+    }
+  }
+}
+
+@Composable
+private fun MemoManageMenu(
+    isBusy: Boolean,
+    archiveMemo: () -> Unit,
+    requestDelete: () -> Unit,
+) {
+  var expanded by remember { mutableStateOf(false) }
+  Box {
+    if (isBusy) {
+      Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+      }
+    } else {
+      IconButton(onClick = { expanded = true }) {
+        Icon(Icons.Filled.MoreVert, stringResource(R.string.memo_actions))
+      }
+    }
+    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+      DropdownMenuItem(
+          text = { Text(stringResource(R.string.archive_memo)) },
+          onClick = {
+            expanded = false
+            archiveMemo()
+          },
+          leadingIcon = { Icon(Icons.Filled.Archive, contentDescription = null) },
+      )
+      DropdownMenuItem(
+          text = {
+            Text(
+                stringResource(R.string.move_memo_to_trash),
+                color = MaterialTheme.colorScheme.error,
+            )
+          },
+          onClick = {
+            expanded = false
+            requestDelete()
+          },
+          leadingIcon = {
+            Icon(
+                Icons.Filled.Delete,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+            )
+          },
+      )
     }
   }
 }

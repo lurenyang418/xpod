@@ -37,8 +37,10 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -195,6 +197,15 @@ private fun XpodHome(
             },
         )
       }
+  val memosManageActions =
+      remember(viewModel) {
+        MemosManageActions(
+            archiveMemo = viewModel::archiveMemo,
+            requestDelete = viewModel::requestMemoDelete,
+            dismissDelete = viewModel::dismissMemoDelete,
+            moveToTrash = viewModel::moveMemoToTrash,
+        )
+      }
   var destination by rememberSaveable { mutableStateOf(AppTab.Podcasts) }
   var selectedEpisodeId by rememberSaveable { mutableStateOf<String?>(null) }
   var selectedArticleId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -221,7 +232,10 @@ private fun XpodHome(
     }
   }
   LaunchedEffect(destination) {
-    if (destination != AppTab.Memos) viewModel.dismissPrivateMemoShare()
+    if (destination != AppTab.Memos) {
+      viewModel.dismissPrivateMemoShare()
+      viewModel.dismissMemoDelete()
+    }
   }
   val handleDownload: (EpisodeEntity) -> Unit = { episode ->
     if (downloadStates[episode.id]?.isCompleted == true) {
@@ -236,6 +250,27 @@ private fun XpodHome(
     state.status?.let {
       snackbar.showSnackbar(it)
       viewModel.dismissStatus()
+    }
+  }
+  val archivedMemoForUndo = memos.archivedMemoForUndo
+  LaunchedEffect(
+      archivedMemoForUndo?.id,
+      archivedMemoForUndo?.version,
+      memos.archivedMemoUndoSequence,
+  ) {
+    archivedMemoForUndo?.let { memo ->
+      val result =
+          snackbar.showSnackbar(
+              message = resources.getString(R.string.cloud_memo_archived),
+              actionLabel = resources.getString(R.string.undo),
+              withDismissAction = true,
+              duration = SnackbarDuration.Long,
+          )
+      if (result == SnackbarResult.ActionPerformed) {
+        viewModel.restoreArchivedMemo(memo.id)
+      } else {
+        viewModel.dismissArchivedMemoUndo(memo.id)
+      }
     }
   }
   val back: () -> Unit = {
@@ -392,6 +427,7 @@ private fun XpodHome(
               composerActions = memosComposerActions,
               listActions = memosListActions,
               shareActions = memosShareActions,
+              manageActions = memosManageActions,
           )
       else ->
           SettingsScreen(

@@ -179,7 +179,9 @@ class CloudMemosApiTest {
                       "id":"memo-id",
                       "content":"Hello #xpod",
                       "visibility":"MEMBERS",
+                      "state":"ACTIVE",
                       "pinned":true,
+                      "version":3,
                       "createdAt":100,
                       "updatedAt":200,
                       "tags":["xpod"]
@@ -208,8 +210,133 @@ class CloudMemosApiTest {
     assertEquals(1, page.items.size)
     assertEquals("memo-id", page.items.single().id)
     assertEquals(CloudMemoVisibility.Members, page.items.single().visibility)
+    assertEquals(CloudMemoState.Active, page.items.single().state)
+    assertEquals(3L, page.items.single().version)
     assertTrue(page.items.single().pinned)
     assertEquals(listOf("xpod"), page.items.single().tags)
+  }
+
+  @Test
+  fun archiveMemoPatchesStateWithCurrentVersion() = runTest {
+    val request = AtomicReference<Request>()
+    val api =
+        CloudMemosApi(
+            client { incoming ->
+              request.set(incoming)
+              response(
+                  incoming,
+                  200,
+                  """{
+                    "id":"memo/id",
+                    "content":"Archived memo",
+                    "visibility":"PRIVATE",
+                    "state":"ARCHIVED",
+                    "pinned":false,
+                    "version":8,
+                    "createdAt":100,
+                    "updatedAt":300,
+                    "tags":[]
+                  }""",
+              )
+            }
+        )
+
+    val memo =
+        api.updateMemoState(
+            normalizeCloudMemosUrl("https://memos.example.com/base"),
+            TOKEN,
+            memoId = "memo/id",
+            version = 7,
+            state = CloudMemoState.Archived,
+        )
+
+    assertEquals("PATCH", request.get().method)
+    assertEquals(
+        "https://memos.example.com/base/api/v1/memos/memo%2Fid",
+        request.get().url.toString(),
+    )
+    val buffer = Buffer()
+    requireNotNull(request.get().body).writeTo(buffer)
+    assertEquals("{\"state\":\"ARCHIVED\",\"version\":7}", buffer.readUtf8())
+    assertEquals(CloudMemoState.Archived, memo.state)
+    assertEquals(8L, memo.version)
+  }
+
+  @Test
+  fun deleteMemoMovesMemoToTrash() = runTest {
+    val requests = mutableListOf<Request>()
+    val api =
+        CloudMemosApi(
+            client { incoming ->
+              requests += incoming
+              if (incoming.url.encodedPath.endsWith("/openapi.json")) {
+                response(
+                    incoming,
+                    200,
+                    """{
+                      "paths": {
+                        "/api/v1/memos/{id}/restore": {"post": {}},
+                        "/api/v1/memos/{id}/permanent": {"delete": {}}
+                      }
+                    }""",
+                )
+              } else {
+                response(incoming, 204, "")
+              }
+            }
+        )
+
+    api.deleteMemo(
+        normalizeCloudMemosUrl("https://memos.example.com/base"),
+        TOKEN,
+        memoId = "memo-id",
+    )
+
+    assertEquals(2, requests.size)
+    assertEquals("GET", requests[0].method)
+    assertEquals(
+        "https://memos.example.com/base/api/v1/openapi.json",
+        requests[0].url.toString(),
+    )
+    assertEquals("DELETE", requests[1].method)
+    assertEquals(
+        "https://memos.example.com/base/api/v1/memos/memo-id",
+        requests[1].url.toString(),
+    )
+  }
+
+  @Test
+  fun deleteMemoRefusesServerWithoutRecycleBinSupport() = runTest {
+    val requests = mutableListOf<Request>()
+    val api =
+        CloudMemosApi(
+            client { incoming ->
+              requests += incoming
+              response(
+                  incoming,
+                  200,
+                  """{
+                    "paths": {
+                      "/api/v1/memos/{id}": {"delete": {}}
+                    }
+                  }""",
+              )
+            }
+        )
+
+    try {
+      api.deleteMemo(
+          normalizeCloudMemosUrl("https://memos.example.com"),
+          TOKEN,
+          memoId = "memo-id",
+      )
+      throw AssertionError("Expected CloudMemosRecycleBinUnsupportedException")
+    } catch (_: CloudMemosRecycleBinUnsupportedException) {
+      // Expected: the destructive request must not be sent without a proven recycle bin.
+    }
+
+    assertEquals(1, requests.size)
+    assertEquals("GET", requests.single().method)
   }
 
   @Test

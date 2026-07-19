@@ -53,6 +53,11 @@ enum class CloudMemoVisibility {
   Public,
 }
 
+enum class CloudMemoState {
+  Active,
+  Archived,
+}
+
 data class CloudMemosConnection(
     val baseUrl: String = "",
     val isConfigured: Boolean = false,
@@ -62,7 +67,9 @@ data class CloudMemo(
     val id: String,
     val content: String,
     val visibility: CloudMemoVisibility,
+    val state: CloudMemoState,
     val pinned: Boolean,
+    val version: Long,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
     val tags: List<String>,
@@ -81,6 +88,9 @@ class InvalidCloudMemosTokenException :
 
 class CloudMemosNotConfiguredException :
     IllegalStateException("Cloud Memos has not been configured")
+
+class CloudMemosRecycleBinUnsupportedException :
+    IllegalStateException("Cloud Memos recycle bin support could not be verified")
 
 class CloudMemosHttpException(
     val statusCode: Int,
@@ -169,6 +179,72 @@ class CloudMemosApi @Inject constructor(private val client: OkHttpClient) {
         )
     return response["id"]?.jsonPrimitive?.content
         ?: throw CloudMemosProtocolException("Cloud Memos returned an invalid response")
+  }
+
+  suspend fun updateMemoState(
+      baseUrl: HttpUrl,
+      token: String,
+      memoId: String,
+      version: Long,
+      state: CloudMemoState,
+  ): CloudMemo {
+    val body =
+        buildJsonObject {
+              put("state", state.apiValue)
+              put("version", version)
+            }
+            .toString()
+            .toRequestBody(JSON_MEDIA_TYPE)
+    val response =
+        executeJson(
+            requestBuilder(token)
+                .url(apiUrl(baseUrl).newBuilder().addPathSegment(memoId).build())
+                .patch(body)
+                .build(),
+            expectedCode = 200,
+        )
+    return parseMemo(response)
+  }
+
+  suspend fun deleteMemo(baseUrl: HttpUrl, token: String, memoId: String) {
+    requireRecycleBinSupport(baseUrl, token)
+    val response =
+        execute(
+            requestBuilder(token)
+                .url(apiUrl(baseUrl).newBuilder().addPathSegment(memoId).build())
+                .delete()
+                .build()
+        )
+    if (response.statusCode != 204) {
+      throw httpException(response.statusCode, response.body)
+    }
+  }
+
+  private suspend fun requireRecycleBinSupport(baseUrl: HttpUrl, token: String) {
+    val response =
+        execute(
+            requestBuilder(token)
+                .url(baseUrl.newBuilder().addPathSegments("api/v1/openapi.json").build())
+                .get()
+                .build()
+        )
+    if (response.statusCode == 404) throw CloudMemosRecycleBinUnsupportedException()
+    if (response.statusCode != 200) {
+      throw httpException(response.statusCode, response.body)
+    }
+    val document =
+        runCatching { JSON.parseToJsonElement(response.body).jsonObject }
+            .getOrElse { throw CloudMemosRecycleBinUnsupportedException() }
+    val supportsRecycleBin =
+        runCatching {
+              val paths = requireNotNull(document["paths"]).jsonObject
+              paths["/api/v1/memos/{id}/restore"]?.jsonObject?.containsKey("post") == true &&
+                  paths["/api/v1/memos/{id}/permanent"]?.jsonObject?.containsKey("delete") == true
+            }
+            .getOrDefault(false)
+    if (!supportsRecycleBin) {
+      throw CloudMemosRecycleBinUnsupportedException()
+    }
   }
 
   private fun requestBuilder(token: String): Request.Builder =
@@ -267,11 +343,18 @@ class CloudMemosApi @Inject constructor(private val client: OkHttpClient) {
                 else ->
                     throw CloudMemosProtocolException("Cloud Memos returned an invalid visibility")
               },
+          state =
+              when (value.requiredString("state")) {
+                "ACTIVE" -> CloudMemoState.Active
+                "ARCHIVED" -> CloudMemoState.Archived
+                else -> throw CloudMemosProtocolException("Cloud Memos returned an invalid state")
+              },
           pinned =
               value["pinned"]?.jsonPrimitive?.booleanOrNull
                   ?: throw CloudMemosProtocolException(
                       "Cloud Memos returned an invalid pinned state"
                   ),
+          version = value.requiredLong("version"),
           createdAtEpochMs = value.requiredLong("createdAt"),
           updatedAtEpochMs = value.requiredLong("updatedAt"),
           tags =
@@ -361,6 +444,26 @@ constructor(
         cursor = cursor,
         limit = limit,
     )
+  }
+
+  suspend fun updateMemoState(
+      memoId: String,
+      version: Long,
+      state: CloudMemoState,
+  ): Result<CloudMemo> = runCatchingCancellable {
+    val (baseUrl, token) = readCredentialsOrNull() ?: throw CloudMemosNotConfiguredException()
+    api.updateMemoState(
+        normalizeCloudMemosUrl(baseUrl),
+        token,
+        memoId = memoId,
+        version = version,
+        state = state,
+    )
+  }
+
+  suspend fun deleteMemo(memoId: String): Result<Unit> = runCatchingCancellable {
+    val (baseUrl, token) = readCredentialsOrNull() ?: throw CloudMemosNotConfiguredException()
+    api.deleteMemo(normalizeCloudMemosUrl(baseUrl), token, memoId)
   }
 
   private suspend fun readCredentialsOrNull(): Pair<String, String>? {
@@ -458,6 +561,13 @@ private val CloudMemoVisibility.apiValue: String
         CloudMemoVisibility.Private -> "PRIVATE"
         CloudMemoVisibility.Members -> "MEMBERS"
         CloudMemoVisibility.Public -> "PUBLIC"
+      }
+
+private val CloudMemoState.apiValue: String
+  get() =
+      when (this) {
+        CloudMemoState.Active -> "ACTIVE"
+        CloudMemoState.Archived -> "ARCHIVED"
       }
 
 private suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->

@@ -11,11 +11,13 @@ import app.xpod.data.ArticleEntity
 import app.xpod.data.ArticleFeedEntity
 import app.xpod.data.CloudMemo
 import app.xpod.data.CloudMemoDrafts
+import app.xpod.data.CloudMemoState
 import app.xpod.data.CloudMemoVisibility
 import app.xpod.data.CloudMemosConnection
 import app.xpod.data.CloudMemosHttpException
 import app.xpod.data.CloudMemosNotConfiguredException
 import app.xpod.data.CloudMemosProtocolException
+import app.xpod.data.CloudMemosRecycleBinUnsupportedException
 import app.xpod.data.CloudMemosRepository
 import app.xpod.data.DownloadRepository
 import app.xpod.data.EpisodeEntity
@@ -37,6 +39,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.IOException
 import java.util.Locale
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -81,7 +84,11 @@ data class MemosUiState(
     val isRefreshing: Boolean = false,
     val isLoadingMore: Boolean = false,
     val isCreating: Boolean = false,
+    val busyMemoIds: Set<String> = emptySet(),
     val pendingPrivateShareMemoId: String? = null,
+    val pendingDeleteMemoId: String? = null,
+    val archivedMemoForUndo: CloudMemo? = null,
+    val archivedMemoUndoSequence: Long = 0,
     val error: String? = null,
 )
 
@@ -105,6 +112,7 @@ constructor(
   private val _memosState = MutableStateFlow(MemosUiState())
   private var memosLoadJob: Job? = null
   private var memosCreateJob: Job? = null
+  private val memosMutationJobs = mutableMapOf<String, Job>()
   private var memosAccountGeneration = 0L
   private var memosLoadGeneration = 0L
   @OptIn(ExperimentalCoroutinesApi::class)
@@ -492,12 +500,172 @@ constructor(
     ) {
       return
     }
-    _memosState.value = current.copy(pendingPrivateShareMemoId = memoId)
+    _memosState.value = current.copy(pendingPrivateShareMemoId = memoId, pendingDeleteMemoId = null)
   }
 
   fun dismissPrivateMemoShare() {
     if (_memosState.value.pendingPrivateShareMemoId == null) return
     _memosState.value = _memosState.value.copy(pendingPrivateShareMemoId = null)
+  }
+
+  fun requestMemoDelete(memoId: String) {
+    val current = _memosState.value
+    if (memoId in current.busyMemoIds || current.items.none { it.id == memoId }) return
+    _memosState.value = current.copy(pendingDeleteMemoId = memoId, pendingPrivateShareMemoId = null)
+  }
+
+  fun dismissMemoDelete() {
+    if (_memosState.value.pendingDeleteMemoId == null) return
+    _memosState.value = _memosState.value.copy(pendingDeleteMemoId = null)
+  }
+
+  fun archiveMemo(memoId: String) {
+    val current = _memosState.value
+    val memo = current.items.firstOrNull { it.id == memoId } ?: return
+    if (
+        memo.state != CloudMemoState.Active ||
+            memoId in current.busyMemoIds ||
+            memosMutationJobs.containsKey(memoId)
+    ) {
+      return
+    }
+    _memosState.value =
+        current.copy(
+            busyMemoIds = current.busyMemoIds + memoId,
+            pendingPrivateShareMemoId =
+                current.pendingPrivateShareMemoId.takeUnless { it == memoId },
+            pendingDeleteMemoId = current.pendingDeleteMemoId.takeUnless { it == memoId },
+            error = null,
+        )
+    val accountGeneration = memosAccountGeneration
+    val job =
+        viewModelScope.launch(start = CoroutineStart.LAZY) {
+          val result =
+              cloudMemos.updateMemoState(
+                  memoId = memo.id,
+                  version = memo.version,
+                  state = CloudMemoState.Archived,
+              )
+          memosMutationJobs.remove(memoId)
+          if (accountGeneration != memosAccountGeneration) return@launch
+          result.fold(
+              { archivedMemo ->
+                val latest = _memosState.value
+                _memosState.value =
+                    latest.copy(
+                        items = latest.items.filterNot { it.id == memoId },
+                        busyMemoIds = latest.busyMemoIds - memoId,
+                        archivedMemoForUndo = archivedMemo,
+                        archivedMemoUndoSequence = latest.archivedMemoUndoSequence + 1,
+                    )
+                startMemosLoad(reset = true)
+              },
+              { error ->
+                handleMemoMutationFailure(memoId, error, R.string.cloud_memo_archive_failed_reason)
+              },
+          )
+        }
+    memosMutationJobs[memoId] = job
+    job.start()
+  }
+
+  fun restoreArchivedMemo(memoId: String) {
+    val current = _memosState.value
+    val memo = current.archivedMemoForUndo?.takeIf { it.id == memoId } ?: return
+    if (memoId in current.busyMemoIds || memosMutationJobs.containsKey(memoId)) return
+    _memosState.value = current.copy(busyMemoIds = current.busyMemoIds + memoId, error = null)
+    val accountGeneration = memosAccountGeneration
+    val job =
+        viewModelScope.launch(start = CoroutineStart.LAZY) {
+          val result =
+              cloudMemos.updateMemoState(
+                  memoId = memo.id,
+                  version = memo.version,
+                  state = CloudMemoState.Active,
+              )
+          memosMutationJobs.remove(memoId)
+          if (accountGeneration != memosAccountGeneration) return@launch
+          result.fold(
+              {
+                val latest = _memosState.value
+                _memosState.value =
+                    latest.copy(
+                        busyMemoIds = latest.busyMemoIds - memoId,
+                        archivedMemoForUndo =
+                            latest.archivedMemoForUndo?.takeUnless { it.id == memoId },
+                    )
+                status.value = context.getString(R.string.cloud_memo_archive_undone)
+                startMemosLoad(reset = true)
+              },
+              { error ->
+                val latest = _memosState.value
+                val isVersionConflict =
+                    error is CloudMemosHttpException && error.errorCode == "VERSION_CONFLICT"
+                _memosState.value = latest.afterArchiveRestoreFailure(memoId, isVersionConflict)
+                handleMemoMutationFailure(
+                    memoId,
+                    error,
+                    R.string.cloud_memo_restore_failed_reason,
+                )
+              },
+          )
+        }
+    memosMutationJobs[memoId] = job
+    job.start()
+  }
+
+  fun dismissArchivedMemoUndo(memoId: String) {
+    val current = _memosState.value
+    if (current.archivedMemoForUndo?.id != memoId) return
+    _memosState.value = current.copy(archivedMemoForUndo = null)
+  }
+
+  fun moveMemoToTrash(memoId: String) {
+    val current = _memosState.value
+    if (current.pendingDeleteMemoId != memoId) return
+    if (
+        current.items.none { it.id == memoId } ||
+            memoId in current.busyMemoIds ||
+            memosMutationJobs.containsKey(memoId)
+    ) {
+      return
+    }
+    _memosState.value =
+        current.copy(
+            busyMemoIds = current.busyMemoIds + memoId,
+            pendingDeleteMemoId = null,
+            error = null,
+        )
+    val accountGeneration = memosAccountGeneration
+    val job =
+        viewModelScope.launch(start = CoroutineStart.LAZY) {
+          val result = cloudMemos.deleteMemo(memoId)
+          memosMutationJobs.remove(memoId)
+          if (accountGeneration != memosAccountGeneration) return@launch
+          result.fold(
+              {
+                val latest = _memosState.value
+                _memosState.value =
+                    latest.copy(
+                        items = latest.items.filterNot { it.id == memoId },
+                        busyMemoIds = latest.busyMemoIds - memoId,
+                        pendingPrivateShareMemoId =
+                            latest.pendingPrivateShareMemoId.takeUnless { it == memoId },
+                    )
+                status.value = context.getString(R.string.cloud_memo_moved_to_trash)
+                startMemosLoad(reset = true)
+              },
+              { error ->
+                handleMemoMutationFailure(
+                    memoId,
+                    error,
+                    R.string.cloud_memo_delete_failed_reason,
+                )
+              },
+          )
+        }
+    memosMutationJobs[memoId] = job
+    job.start()
   }
 
   fun loadMemos() {
@@ -597,6 +765,7 @@ constructor(
                   isLoadingMore = false,
                   pendingPrivateShareMemoId =
                       if (reset) null else _memosState.value.pendingPrivateShareMemoId,
+                  pendingDeleteMemoId = if (reset) null else _memosState.value.pendingDeleteMemoId,
               )
         },
         { error ->
@@ -622,12 +791,33 @@ constructor(
     memosLoadJob = null
     memosCreateJob?.cancel()
     memosCreateJob = null
+    memosMutationJobs.values.forEach(Job::cancel)
+    memosMutationJobs.clear()
     _memosState.value =
         _memosState.value.copy(
             isRefreshing = false,
             isLoadingMore = false,
             isCreating = false,
+            busyMemoIds = emptySet(),
+            pendingPrivateShareMemoId = null,
+            pendingDeleteMemoId = null,
+            archivedMemoForUndo = null,
+            archivedMemoUndoSequence = 0,
         )
+  }
+
+  private fun handleMemoMutationFailure(memoId: String, error: Throwable, messageRes: Int) {
+    val latest = _memosState.value
+    _memosState.value = latest.copy(busyMemoIds = latest.busyMemoIds - memoId)
+    if (error is CloudMemosHttpException && error.errorCode == "VERSION_CONFLICT") {
+      status.value = context.getString(R.string.cloud_memo_version_conflict)
+      startMemosLoad(reset = true)
+    } else {
+      _memosState.value =
+          _memosState.value.copy(
+              error = context.getString(messageRes, cloudMemosFailureReason(error))
+          )
+    }
   }
 
   private fun saveToCloudMemos(content: String) = viewModelScope.launch {
@@ -658,6 +848,8 @@ constructor(
         is InvalidCloudMemosTokenException -> context.getString(R.string.cloud_memos_error_token)
         is CloudMemosNotConfiguredException ->
             context.getString(R.string.cloud_memos_error_not_configured)
+        is CloudMemosRecycleBinUnsupportedException ->
+            context.getString(R.string.cloud_memos_error_recycle_bin_required)
         is CloudMemosHttpException ->
             when {
               error.statusCode == 401 || error.errorCode == "INVALID_API_TOKEN" ->
@@ -692,3 +884,19 @@ constructor(
 
 private fun CloudMemosConnection.toUiState(isBusy: Boolean): CloudMemosUiState =
     CloudMemosUiState(baseUrl = baseUrl, isConfigured = isConfigured, isBusy = isBusy)
+
+internal fun MemosUiState.afterArchiveRestoreFailure(
+    memoId: String,
+    isVersionConflict: Boolean,
+): MemosUiState {
+  val isCurrentUndo = archivedMemoForUndo?.id == memoId
+  return copy(
+      archivedMemoForUndo = if (isVersionConflict && isCurrentUndo) null else archivedMemoForUndo,
+      archivedMemoUndoSequence =
+          if (!isVersionConflict && isCurrentUndo) {
+            archivedMemoUndoSequence + 1
+          } else {
+            archivedMemoUndoSequence
+          },
+  )
+}
