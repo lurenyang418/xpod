@@ -9,6 +9,20 @@
     <string name="unread">未读</string>
     <string name="mark_read">标记为已读</string>
     <string name="mark_unread">标记为未读</string>
+    <string name="mark_as_read">标记为已读</string>
+    <string name="mark_all_articles_read">全部标记为已读</string>
+    <string name="mark_feed_read">将当前订阅标记为已读</string>
+    <string name="mark_all_articles_read_title">将文章标记为已读？</string>
+    <plurals name="mark_all_articles_read_message">
+        <item quantity="other">将全部订阅中的 %1$d 篇文章标记为已读？</item>
+    </plurals>
+    <plurals name="mark_feed_read_message">
+        <item quantity="other">将“%2$s”中的 %1$d 篇文章标记为已读？</item>
+    </plurals>
+    <plurals name="marked_articles_read">
+        <item quantity="other">已将 %1$d 篇文章标记为已读</item>
+    </plurals>
+    <string name="reader_actions">更多阅读操作</string>
     <string name="no_reader_subscriptions">还没有文章订阅</string>
     <string name="no_articles_match">没有符合当前筛选条件的文章</string>
     <string name="no_article_content">此订阅源未提供文章正文。</string>
@@ -34,6 +48,18 @@
     <string name="remove_favorite">取消收藏</string>
     <string name="mark_played">标记为已播放</string>
     <string name="mark_unplayed">标记为未播放</string>
+    <string name="mark_all_episodes_played">全部标记为已播放</string>
+    <string name="mark_all_episodes_played_title">将单集标记为已播放？</string>
+    <plurals name="mark_all_episodes_played_message">
+        <item quantity="other">将“%2$s”中的 %1$d 个单集标记为已播放？</item>
+    </plurals>
+    <plurals name="marked_episodes_played">
+        <item quantity="other">已将 %1$d 个单集标记为已播放</item>
+    </plurals>
+    <string name="subscription_actions">更多订阅操作</string>
+    <string name="could_not_mark_all">无法批量更新状态</string>
+    <string name="bulk_mark_undone">已恢复之前的状态</string>
+    <string name="could_not_undo_bulk_mark">无法恢复之前的状态，请再次点击撤销。</string>
     <string name="download">下载</string>
     <string name="add_subscription">添加订阅</string>
     <string name="feed_url">HTTPS RSS 订阅地址</string>

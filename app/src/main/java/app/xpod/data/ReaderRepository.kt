@@ -15,6 +15,8 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
+data class ArticlesReadChange(val articleIds: List<String>)
+
 @Singleton
 class ReaderRepository
 @Inject
@@ -94,6 +96,21 @@ constructor(
 
   suspend fun setRead(id: String, read: Boolean) = database.articles().setRead(id, read)
 
+  suspend fun markAllRead(feedId: String?): ArticlesReadChange = database.withTransaction {
+    val ids =
+        if (feedId == null) database.articles().unreadIds()
+        else database.articles().unreadIdsForFeed(feedId)
+    if (feedId == null) database.articles().markAllRead()
+    else database.articles().markFeedRead(feedId)
+    ArticlesReadChange(ids)
+  }
+
+  suspend fun restoreReadChange(change: ArticlesReadChange) = database.withTransaction {
+    change.articleIds.chunked(SQLITE_BATCH_SIZE).forEach { ids ->
+      database.articles().setRead(ids, false)
+    }
+  }
+
   suspend fun toggleFavorite(id: String) = database.articles().toggleFavorite(id)
 
   suspend fun remove(feedId: String) =
@@ -103,5 +120,6 @@ constructor(
 
   private companion object {
     const val MAX_CONCURRENT_REFRESHES = 4
+    const val SQLITE_BATCH_SIZE = 500
   }
 }

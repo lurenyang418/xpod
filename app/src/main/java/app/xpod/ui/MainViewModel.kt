@@ -9,6 +9,7 @@ import app.xpod.R
 import app.xpod.data.AppTab
 import app.xpod.data.ArticleEntity
 import app.xpod.data.ArticleFeedEntity
+import app.xpod.data.ArticlesReadChange
 import app.xpod.data.CloudMemo
 import app.xpod.data.CloudMemoDrafts
 import app.xpod.data.CloudMemoState
@@ -25,6 +26,7 @@ import app.xpod.data.FeedHttpException
 import app.xpod.data.InvalidCloudMemosTokenException
 import app.xpod.data.InvalidCloudMemosUrlException
 import app.xpod.data.PodcastEntity
+import app.xpod.data.PodcastPlayedChange
 import app.xpod.data.PodcastRepository
 import app.xpod.data.ReaderRepository
 import app.xpod.data.SettingsRepository
@@ -55,6 +57,7 @@ import org.xmlpull.v1.XmlPullParserException
 data class MainUiState(
     val podcasts: List<PodcastEntity> = emptyList(),
     val newEpisodeCounts: Map<String, Int> = emptyMap(),
+    val unplayedEpisodeCounts: Map<String, Int> = emptyMap(),
     val selectedPodcastId: String? = null,
     val episodes: List<EpisodeEntity> = emptyList(),
     val libraryEpisodes: List<EpisodeEntity> = emptyList(),
@@ -92,6 +95,66 @@ data class MemosUiState(
     val error: String? = null,
 )
 
+sealed interface BulkMarkRequest {
+  val count: Int
+
+  data class Podcast(
+      val podcastId: String,
+      val podcastTitle: String,
+      override val count: Int,
+  ) : BulkMarkRequest
+
+  data class Articles(
+      val feedId: String?,
+      val feedTitle: String?,
+      override val count: Int,
+  ) : BulkMarkRequest
+}
+
+enum class BulkMarkKind {
+  PodcastEpisodes,
+  Articles,
+}
+
+data class BulkUndoEvent(
+    val id: Long,
+    val kind: BulkMarkKind,
+    val count: Int,
+)
+
+data class BulkActionsUiState(
+    val pendingRequest: BulkMarkRequest? = null,
+    val undoEvent: BulkUndoEvent? = null,
+    val isBusy: Boolean = false,
+)
+
+private sealed interface BulkUndoChange {
+  val count: Int
+
+  data class Podcast(val change: PodcastPlayedChange) : BulkUndoChange {
+    override val count = change.markedPlayedCount
+  }
+
+  data class Articles(val change: ArticlesReadChange) : BulkUndoChange {
+    override val count = change.articleIds.size
+  }
+}
+
+private data class PendingBulkUndo(
+    val eventId: Long,
+    val change: BulkUndoChange,
+)
+
+internal fun unplayedEpisodeCount(episodes: List<EpisodeEntity>, podcastId: String): Int =
+    episodes.count {
+      it.podcastId == podcastId && !it.isPlayed
+    }
+
+internal fun unreadArticleCount(articles: List<ArticleEntity>, feedId: String?): Int =
+    articles.count {
+      !it.isRead && (feedId == null || it.feedId == feedId)
+    }
+
 @HiltViewModel
 class MainViewModel
 @Inject
@@ -110,6 +173,9 @@ constructor(
   private val refreshingArticles = MutableStateFlow(false)
   private val cloudMemosBusy = MutableStateFlow(false)
   private val _memosState = MutableStateFlow(MemosUiState())
+  private val _bulkActionsState = MutableStateFlow(BulkActionsUiState())
+  private var pendingBulkUndo: PendingBulkUndo? = null
+  private var bulkEventSequence = 0L
   private var memosLoadJob: Job? = null
   private var memosCreateJob: Job? = null
   private val memosMutationJobs = mutableMapOf<String, Job>()
@@ -129,6 +195,8 @@ constructor(
         MainUiState(
             podcasts = all,
             newEpisodeCounts = library.filter { it.isNew }.groupingBy { it.podcastId }.eachCount(),
+            unplayedEpisodeCounts =
+                library.filterNot { it.isPlayed }.groupingBy { it.podcastId }.eachCount(),
             selectedPodcastId = id,
             episodes = items,
             libraryEpisodes = library,
@@ -172,6 +240,7 @@ constructor(
               CloudMemosUiState(),
           )
   val memosState: StateFlow<MemosUiState> = _memosState
+  val bulkActionsState: StateFlow<BulkActionsUiState> = _bulkActionsState
   val tabOrder: StateFlow<List<AppTab>> =
       settings.tabOrder.stateIn(
           viewModelScope,
@@ -206,6 +275,126 @@ constructor(
   fun removeArticleFeed(id: String) = viewModelScope.launch {
     reader.remove(id)
     status.value = context.getString(R.string.subscription_removed)
+  }
+
+  fun requestPodcastMarkAllPlayed(podcastId: String) {
+    if (_bulkActionsState.value.isBusy) return
+    val current = state.value
+    val podcast = current.podcasts.firstOrNull { it.id == podcastId } ?: return
+    val count = unplayedEpisodeCount(current.libraryEpisodes, podcastId)
+    if (count == 0) return
+    _bulkActionsState.value =
+        _bulkActionsState.value.copy(
+            pendingRequest = BulkMarkRequest.Podcast(podcastId, podcast.title, count)
+        )
+  }
+
+  fun requestArticlesMarkAllRead(feedId: String?) {
+    if (_bulkActionsState.value.isBusy) return
+    val current = state.value
+    val feed = feedId?.let { id -> current.articleFeeds.firstOrNull { it.id == id } ?: return }
+    val count = unreadArticleCount(current.articles, feedId)
+    if (count == 0) return
+    _bulkActionsState.value =
+        _bulkActionsState.value.copy(
+            pendingRequest = BulkMarkRequest.Articles(feedId, feed?.title, count)
+        )
+  }
+
+  fun dismissBulkMarkRequest() {
+    if (_bulkActionsState.value.isBusy) return
+    _bulkActionsState.value = _bulkActionsState.value.copy(pendingRequest = null)
+  }
+
+  fun confirmBulkMark() {
+    val request = _bulkActionsState.value.pendingRequest ?: return
+    if (_bulkActionsState.value.isBusy) return
+    pendingBulkUndo = null
+    _bulkActionsState.value =
+        _bulkActionsState.value.copy(pendingRequest = null, undoEvent = null, isBusy = true)
+    viewModelScope.launch {
+      runCatchingCancellable {
+            when (request) {
+              is BulkMarkRequest.Podcast ->
+                  BulkUndoChange.Podcast(podcasts.markAllPlayed(request.podcastId))
+              is BulkMarkRequest.Articles ->
+                  BulkUndoChange.Articles(reader.markAllRead(request.feedId))
+            }
+          }
+          .fold(
+              { change ->
+                if (change.count == 0) {
+                  _bulkActionsState.value =
+                      _bulkActionsState.value.copy(isBusy = false, undoEvent = null)
+                  return@fold
+                }
+                val event =
+                    BulkUndoEvent(
+                        id = ++bulkEventSequence,
+                        kind =
+                            when (change) {
+                              is BulkUndoChange.Podcast -> BulkMarkKind.PodcastEpisodes
+                              is BulkUndoChange.Articles -> BulkMarkKind.Articles
+                            },
+                        count = change.count,
+                    )
+                pendingBulkUndo = PendingBulkUndo(event.id, change)
+                _bulkActionsState.value =
+                    _bulkActionsState.value.copy(isBusy = false, undoEvent = event)
+              },
+              { error ->
+                Log.e("XPOD", "Unable to mark items in bulk", error)
+                _bulkActionsState.value =
+                    _bulkActionsState.value.copy(isBusy = false, undoEvent = null)
+                status.value = context.getString(R.string.could_not_mark_all)
+              },
+          )
+    }
+  }
+
+  fun undoBulkMark(eventId: Long) {
+    if (_bulkActionsState.value.isBusy) return
+    val pending = pendingBulkUndo?.takeIf { it.eventId == eventId } ?: return
+    _bulkActionsState.value = _bulkActionsState.value.copy(isBusy = true, undoEvent = null)
+    viewModelScope.launch {
+      runCatchingCancellable {
+            when (val change = pending.change) {
+              is BulkUndoChange.Podcast -> podcasts.restorePlayedChange(change.change)
+              is BulkUndoChange.Articles -> reader.restoreReadChange(change.change)
+            }
+          }
+          .fold(
+              {
+                pendingBulkUndo = null
+                _bulkActionsState.value =
+                    _bulkActionsState.value.copy(isBusy = false, undoEvent = null)
+                status.value = context.getString(R.string.bulk_mark_undone)
+              },
+              { error ->
+                Log.e("XPOD", "Unable to undo bulk status change", error)
+                val retryEvent =
+                    BulkUndoEvent(
+                        id = ++bulkEventSequence,
+                        kind =
+                            when (pending.change) {
+                              is BulkUndoChange.Podcast -> BulkMarkKind.PodcastEpisodes
+                              is BulkUndoChange.Articles -> BulkMarkKind.Articles
+                            },
+                        count = pending.change.count,
+                    )
+                pendingBulkUndo = PendingBulkUndo(retryEvent.id, pending.change)
+                _bulkActionsState.value =
+                    _bulkActionsState.value.copy(isBusy = false, undoEvent = retryEvent)
+                status.value = context.getString(R.string.could_not_undo_bulk_mark)
+              },
+          )
+    }
+  }
+
+  fun dismissBulkUndo(eventId: Long) {
+    if (pendingBulkUndo?.eventId != eventId) return
+    pendingBulkUndo = null
+    _bulkActionsState.value = _bulkActionsState.value.copy(undoEvent = null)
   }
 
   fun addFeed(url: String, onSuccess: () -> Unit = {}) = viewModelScope.launch {

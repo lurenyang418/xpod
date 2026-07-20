@@ -6,6 +6,12 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
+data class EpisodeBulkState(
+    val id: String,
+    val isPlayed: Boolean,
+    val isNew: Boolean,
+)
+
 @Dao
 interface PodcastDao {
   @Query("SELECT * FROM PodcastEntity ORDER BY title COLLATE NOCASE")
@@ -39,6 +45,19 @@ interface EpisodeDao {
 
   @Query("UPDATE EpisodeEntity SET isPlayed = :played WHERE id = :id")
   suspend fun setPlayed(id: String, played: Boolean)
+
+  @Query(
+      "SELECT id, isPlayed, isNew FROM EpisodeEntity WHERE podcastId = :podcastId AND (isPlayed = 0 OR isNew = 1)"
+  )
+  suspend fun bulkStatesForPodcast(podcastId: String): List<EpisodeBulkState>
+
+  @Query(
+      "UPDATE EpisodeEntity SET isPlayed = 1, isNew = 0 WHERE podcastId = :podcastId AND (isPlayed = 0 OR isNew = 1)"
+  )
+  suspend fun markAllPlayed(podcastId: String)
+
+  @Query("UPDATE EpisodeEntity SET isPlayed = :played, isNew = :isNew WHERE id IN (:ids)")
+  suspend fun restoreBulkStates(ids: List<String>, played: Boolean, isNew: Boolean)
 
   @Query("UPDATE EpisodeEntity SET isFavorite = NOT isFavorite WHERE id = :id")
   suspend fun toggleFavorite(id: String)
@@ -90,6 +109,19 @@ interface ArticleDao {
 
   @Query("UPDATE ArticleEntity SET isRead = :read WHERE id = :id")
   suspend fun setRead(id: String, read: Boolean)
+
+  @Query("UPDATE ArticleEntity SET isRead = :read WHERE id IN (:ids)")
+  suspend fun setRead(ids: List<String>, read: Boolean)
+
+  @Query("SELECT id FROM ArticleEntity WHERE isRead = 0") suspend fun unreadIds(): List<String>
+
+  @Query("SELECT id FROM ArticleEntity WHERE feedId = :feedId AND isRead = 0")
+  suspend fun unreadIdsForFeed(feedId: String): List<String>
+
+  @Query("UPDATE ArticleEntity SET isRead = 1 WHERE isRead = 0") suspend fun markAllRead()
+
+  @Query("UPDATE ArticleEntity SET isRead = 1 WHERE feedId = :feedId AND isRead = 0")
+  suspend fun markFeedRead(feedId: String)
 
   @Query("UPDATE ArticleEntity SET isFavorite = NOT isFavorite WHERE id = :id")
   suspend fun toggleFavorite(id: String)

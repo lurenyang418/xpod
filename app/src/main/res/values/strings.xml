@@ -9,6 +9,23 @@
     <string name="unread">Unread</string>
     <string name="mark_read">Mark read</string>
     <string name="mark_unread">Mark unread</string>
+    <string name="mark_as_read">Mark read</string>
+    <string name="mark_all_articles_read">Mark all articles read</string>
+    <string name="mark_feed_read">Mark this feed read</string>
+    <string name="mark_all_articles_read_title">Mark articles as read?</string>
+    <plurals name="mark_all_articles_read_message">
+        <item quantity="one">Mark %1$d article from all subscriptions as read?</item>
+        <item quantity="other">Mark %1$d articles from all subscriptions as read?</item>
+    </plurals>
+    <plurals name="mark_feed_read_message">
+        <item quantity="one">Mark %1$d article from “%2$s” as read?</item>
+        <item quantity="other">Mark %1$d articles from “%2$s” as read?</item>
+    </plurals>
+    <plurals name="marked_articles_read">
+        <item quantity="one">Marked %1$d article as read</item>
+        <item quantity="other">Marked %1$d articles as read</item>
+    </plurals>
+    <string name="reader_actions">More reader actions</string>
     <string name="no_reader_subscriptions">No article subscriptions yet</string>
     <string name="no_articles_match">No articles match these filters</string>
     <string name="no_article_content">This feed did not provide article content.</string>
@@ -34,6 +51,20 @@
     <string name="remove_favorite">Remove favorite</string>
     <string name="mark_played">Mark played</string>
     <string name="mark_unplayed">Mark unplayed</string>
+    <string name="mark_all_episodes_played">Mark all episodes played</string>
+    <string name="mark_all_episodes_played_title">Mark episodes as played?</string>
+    <plurals name="mark_all_episodes_played_message">
+        <item quantity="one">Mark %1$d episode from “%2$s” as played?</item>
+        <item quantity="other">Mark %1$d episodes from “%2$s” as played?</item>
+    </plurals>
+    <plurals name="marked_episodes_played">
+        <item quantity="one">Marked %1$d episode as played</item>
+        <item quantity="other">Marked %1$d episodes as played</item>
+    </plurals>
+    <string name="subscription_actions">More subscription actions</string>
+    <string name="could_not_mark_all">Could not update item statuses</string>
+    <string name="bulk_mark_undone">Previous statuses restored</string>
+    <string name="could_not_undo_bulk_mark">Could not restore the previous statuses. Try Undo again.</string>
     <string name="download">Download</string>
     <string name="add_subscription">Add a subscription</string>
     <string name="feed_url">HTTPS RSS feed URL</string>

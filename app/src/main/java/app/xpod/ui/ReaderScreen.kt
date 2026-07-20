@@ -18,10 +18,13 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -62,10 +65,14 @@ internal fun ReaderScreen(
     setRead: (String, Boolean) -> Unit,
     toggleFavorite: (String) -> Unit,
     delete: (ArticleFeedEntity) -> Unit,
+    requestMarkAllRead: (String?) -> Unit,
+    bulkActionBusy: Boolean,
 ) {
   var filter by rememberSaveable { mutableStateOf(ReaderFilter.All) }
   var feedId by rememberSaveable { mutableStateOf<String?>(null) }
+  var actionsExpanded by remember { mutableStateOf(false) }
   val selectedFeed = state.articleFeeds.firstOrNull { it.id == feedId }
+  val unreadCount = unreadArticleCount(state.articles, feedId)
   LaunchedEffect(feedId, selectedFeed) {
     if (feedId != null && selectedFeed == null) feedId = null
   }
@@ -100,9 +107,43 @@ internal fun ReaderScreen(
           Icon(Icons.Filled.Refresh, stringResource(R.string.refresh_articles))
         }
       }
-      selectedFeed?.let { feed ->
-        IconButton(onClick = { delete(feed) }) {
-          Icon(Icons.Filled.Delete, stringResource(R.string.remove_subscription))
+      if (state.articleFeeds.isNotEmpty()) {
+        Box {
+          IconButton(onClick = { actionsExpanded = true }) {
+            Icon(Icons.Filled.MoreVert, stringResource(R.string.reader_actions))
+          }
+          DropdownMenu(
+              expanded = actionsExpanded,
+              onDismissRequest = { actionsExpanded = false },
+          ) {
+            DropdownMenuItem(
+                text = {
+                  Text(
+                      stringResource(
+                          if (selectedFeed == null) R.string.mark_all_articles_read
+                          else R.string.mark_feed_read
+                      )
+                  )
+                },
+                leadingIcon = { Icon(Icons.Filled.CheckCircle, null) },
+                enabled = unreadCount > 0 && !bulkActionBusy,
+                onClick = {
+                  actionsExpanded = false
+                  requestMarkAllRead(selectedFeed?.id)
+                },
+            )
+            selectedFeed?.let { feed ->
+              DropdownMenuItem(
+                  text = { Text(stringResource(R.string.remove_subscription)) },
+                  leadingIcon = { Icon(Icons.Filled.Delete, null) },
+                  enabled = !bulkActionBusy,
+                  onClick = {
+                    actionsExpanded = false
+                    delete(feed)
+                  },
+              )
+            }
+          }
         }
       }
     }

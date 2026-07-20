@@ -24,10 +24,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -62,6 +66,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -127,6 +132,7 @@ private fun XpodHome(
   val wifiOnlyDownloads by viewModel.wifiOnlyDownloads.collectAsStateWithLifecycle()
   val cloudMemos by viewModel.cloudMemosState.collectAsStateWithLifecycle()
   val memos by viewModel.memosState.collectAsStateWithLifecycle()
+  val bulkActions by viewModel.bulkActionsState.collectAsStateWithLifecycle()
   val tabOrder by viewModel.tabOrder.collectAsStateWithLifecycle()
   val enabledTabs by viewModel.enabledTabs.collectAsStateWithLifecycle()
   val visibleTabs = tabOrder.filter(enabledTabs::contains)
@@ -273,6 +279,38 @@ private fun XpodHome(
       }
     }
   }
+  val bulkUndoEvent = bulkActions.undoEvent
+  LaunchedEffect(bulkUndoEvent?.id) {
+    bulkUndoEvent?.let { event ->
+      val message =
+          when (event.kind) {
+            BulkMarkKind.PodcastEpisodes ->
+                resources.getQuantityString(
+                    R.plurals.marked_episodes_played,
+                    event.count,
+                    event.count,
+                )
+            BulkMarkKind.Articles ->
+                resources.getQuantityString(
+                    R.plurals.marked_articles_read,
+                    event.count,
+                    event.count,
+                )
+          }
+      val result =
+          snackbar.showSnackbar(
+              message = message,
+              actionLabel = resources.getString(R.string.undo),
+              withDismissAction = true,
+              duration = SnackbarDuration.Long,
+          )
+      if (result == SnackbarResult.ActionPerformed) {
+        viewModel.undoBulkMark(event.id)
+      } else {
+        viewModel.dismissBulkUndo(event.id)
+      }
+    }
+  }
   val back: () -> Unit = {
     when {
       fullPlayer -> fullPlayer = false
@@ -386,6 +424,8 @@ private fun XpodHome(
               addToQueue = viewModel::addToQueue,
               showQueue = { showQueue = true },
               delete = { podcastToDelete = it },
+              requestMarkAllPlayed = viewModel::requestPodcastMarkAllPlayed,
+              bulkActionBusy = bulkActions.isBusy,
               openSettings = { destination = AppTab.Settings },
           )
       destination == AppTab.Library ->
@@ -418,6 +458,8 @@ private fun XpodHome(
               setRead = viewModel::setArticleRead,
               toggleFavorite = viewModel::toggleArticleFavorite,
               delete = { articleFeedToDelete = it },
+              requestMarkAllRead = viewModel::requestArticlesMarkAllRead,
+              bulkActionBusy = bulkActions.isBusy,
           )
       destination == AppTab.Memos ->
           MemosScreen(
@@ -460,6 +502,11 @@ private fun XpodHome(
                     !wide && destination == AppTab.Podcasts && state.selectedPodcastId != null,
             fullPlayer = fullPlayer,
             selectedEpisode = selectedEpisode,
+            selectedPodcastId = state.selectedPodcastId,
+            selectedPodcastUnplayedCount =
+                state.selectedPodcastId?.let { state.unplayedEpisodeCounts[it] } ?: 0,
+            bulkActionBusy = bulkActions.isBusy,
+            onRequestPodcastMarkAllPlayed = viewModel::requestPodcastMarkAllPlayed,
             onBack = back,
             onShowQueue = { showQueue = true },
         )
@@ -566,6 +613,12 @@ private fun XpodHome(
         showQueue = false
       },
   )
+  BulkMarkDialog(
+      request = bulkActions.pendingRequest,
+      isBusy = bulkActions.isBusy,
+      onConfirm = viewModel::confirmBulkMark,
+      onDismiss = viewModel::dismissBulkMarkRequest,
+  )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -574,10 +627,15 @@ private fun HomeTopBar(
     show: Boolean,
     fullPlayer: Boolean,
     selectedEpisode: EpisodeEntity?,
+    selectedPodcastId: String?,
+    selectedPodcastUnplayedCount: Int,
+    bulkActionBusy: Boolean,
+    onRequestPodcastMarkAllPlayed: (String) -> Unit,
     onBack: () -> Unit,
     onShowQueue: () -> Unit,
 ) {
   if (!show) return
+  var podcastActionsExpanded by remember(selectedPodcastId) { mutableStateOf(false) }
   TopAppBar(
       title = {
         Text(
@@ -592,10 +650,95 @@ private fun HomeTopBar(
         }
       },
       actions = {
-        if (fullPlayer)
-            IconButton(onClick = onShowQueue) {
-              Icon(Icons.AutoMirrored.Filled.QueueMusic, stringResource(R.string.queue))
+        if (fullPlayer) {
+          IconButton(onClick = onShowQueue) {
+            Icon(Icons.AutoMirrored.Filled.QueueMusic, stringResource(R.string.queue))
+          }
+        } else if (selectedEpisode == null && selectedPodcastId != null) {
+          Box {
+            IconButton(onClick = { podcastActionsExpanded = true }) {
+              Icon(Icons.Filled.MoreVert, stringResource(R.string.subscription_actions))
             }
+            DropdownMenu(
+                expanded = podcastActionsExpanded,
+                onDismissRequest = { podcastActionsExpanded = false },
+            ) {
+              DropdownMenuItem(
+                  text = { Text(stringResource(R.string.mark_all_episodes_played)) },
+                  leadingIcon = { Icon(Icons.Filled.CheckCircle, null) },
+                  enabled = selectedPodcastUnplayedCount > 0 && !bulkActionBusy,
+                  onClick = {
+                    podcastActionsExpanded = false
+                    onRequestPodcastMarkAllPlayed(selectedPodcastId)
+                  },
+              )
+            }
+          }
+        }
+      },
+  )
+}
+
+@Composable
+private fun BulkMarkDialog(
+    request: BulkMarkRequest?,
+    isBusy: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+  request ?: return
+  val isPodcast = request is BulkMarkRequest.Podcast
+  AlertDialog(
+      onDismissRequest = onDismiss,
+      title = {
+        Text(
+            stringResource(
+                if (isPodcast) R.string.mark_all_episodes_played_title
+                else R.string.mark_all_articles_read_title
+            )
+        )
+      },
+      text = {
+        Text(
+            when (request) {
+              is BulkMarkRequest.Podcast ->
+                  pluralStringResource(
+                      R.plurals.mark_all_episodes_played_message,
+                      request.count,
+                      request.count,
+                      request.podcastTitle,
+                  )
+              is BulkMarkRequest.Articles ->
+                  if (request.feedTitle == null) {
+                    pluralStringResource(
+                        R.plurals.mark_all_articles_read_message,
+                        request.count,
+                        request.count,
+                    )
+                  } else {
+                    pluralStringResource(
+                        R.plurals.mark_feed_read_message,
+                        request.count,
+                        request.count,
+                        request.feedTitle,
+                    )
+                  }
+            }
+        )
+      },
+      confirmButton = {
+        TextButton(onClick = onConfirm, enabled = !isBusy) {
+          Text(
+              stringResource(
+                  if (isPodcast) R.string.mark_all_episodes_played else R.string.mark_as_read
+              )
+          )
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = onDismiss, enabled = !isBusy) {
+          Text(stringResource(R.string.cancel))
+        }
       },
   )
 }

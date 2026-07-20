@@ -86,6 +86,11 @@ internal fun parseDisabledTabs(value: String?): Set<AppTab> =
         ?.toSet()
         .orEmpty()
 
+data class PodcastPlayedChange(
+    val states: List<EpisodeBulkState>,
+    val markedPlayedCount: Int,
+)
+
 @Singleton
 class PodcastRepository
 @Inject
@@ -192,6 +197,31 @@ constructor(
   suspend fun setPlayed(episodeId: String, played: Boolean) =
       database.episodes().setPlayed(episodeId, played)
 
+  suspend fun markAllPlayed(podcastId: String): PodcastPlayedChange = database.withTransaction {
+    val states = database.episodes().bulkStatesForPodcast(podcastId)
+    database.episodes().markAllPlayed(podcastId)
+    PodcastPlayedChange(
+        states = states,
+        markedPlayedCount = states.count { !it.isPlayed },
+    )
+  }
+
+  suspend fun restorePlayedChange(change: PodcastPlayedChange) = database.withTransaction {
+    change.states
+        .groupBy { it.isPlayed to it.isNew }
+        .forEach { (status, states) ->
+          states.chunked(SQLITE_BATCH_SIZE).forEach { batch ->
+            database
+                .episodes()
+                .restoreBulkStates(
+                    ids = batch.map(EpisodeBulkState::id),
+                    played = status.first,
+                    isNew = status.second,
+                )
+          }
+        }
+  }
+
   suspend fun markPodcastSeen(podcastId: String) = database.episodes().markPodcastSeen(podcastId)
 
   suspend fun recordPlayback(episodeId: String) =
@@ -204,6 +234,7 @@ constructor(
 
   private companion object {
     const val MAX_CONCURRENT_REFRESHES = 4
+    const val SQLITE_BATCH_SIZE = 500
   }
 }
 

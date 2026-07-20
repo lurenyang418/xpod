@@ -2,6 +2,7 @@ package app.xpod.ui
 
 import android.text.format.Formatter
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
@@ -31,6 +33,8 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,6 +43,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -75,6 +83,8 @@ internal fun SubscriptionScreen(
     addToQueue: (EpisodeEntity) -> Unit,
     showQueue: () -> Unit,
     delete: (PodcastEntity) -> Unit,
+    requestMarkAllPlayed: (String) -> Unit,
+    bulkActionBusy: Boolean,
     openSettings: () -> Unit,
 ) {
   when {
@@ -84,10 +94,13 @@ internal fun SubscriptionScreen(
           PodcastList(
               state.podcasts,
               state.newEpisodeCounts,
+              state.unplayedEpisodeCounts,
               select,
               refresh,
               showQueue,
               delete,
+              requestMarkAllPlayed,
+              bulkActionBusy,
               Modifier.weight(0.42f),
           )
           EpisodeList(
@@ -109,10 +122,13 @@ internal fun SubscriptionScreen(
         PodcastList(
             state.podcasts,
             state.newEpisodeCounts,
+            state.unplayedEpisodeCounts,
             select,
             refresh,
             showQueue,
             delete,
+            requestMarkAllPlayed,
+            bulkActionBusy,
             Modifier.fillMaxSize(),
         )
     else ->
@@ -158,10 +174,13 @@ private fun EmptySubscriptions(openSettings: () -> Unit, modifier: Modifier) =
 private fun PodcastList(
     items: List<PodcastEntity>,
     newEpisodeCounts: Map<String, Int>,
+    unplayedEpisodeCounts: Map<String, Int>,
     select: (String?) -> Unit,
     refresh: (String) -> Unit,
     showQueue: () -> Unit,
     delete: (PodcastEntity) -> Unit,
+    requestMarkAllPlayed: (String) -> Unit,
+    bulkActionBusy: Boolean,
     modifier: Modifier,
 ) =
     LazyColumn(modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -178,6 +197,7 @@ private fun PodcastList(
         }
       }
       items(items, key = { it.id }) { podcast ->
+        var menuExpanded by remember(podcast.id) { mutableStateOf(false) }
         Card(
             onClick = { select(podcast.id) },
             modifier = Modifier.fillMaxWidth().heightIn(min = 112.dp),
@@ -213,11 +233,41 @@ private fun PodcastList(
                     )
                   }
             }
-            IconButton(onClick = { refresh(podcast.feedUrl) }) {
-              Icon(Icons.Filled.Refresh, stringResource(R.string.refresh_feed))
-            }
-            IconButton(onClick = { delete(podcast) }) {
-              Icon(Icons.Filled.Delete, stringResource(R.string.remove_subscription))
+            Box {
+              IconButton(onClick = { menuExpanded = true }) {
+                Icon(Icons.Filled.MoreVert, stringResource(R.string.subscription_actions))
+              }
+              DropdownMenu(
+                  expanded = menuExpanded,
+                  onDismissRequest = { menuExpanded = false },
+              ) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.refresh_feed)) },
+                    leadingIcon = { Icon(Icons.Filled.Refresh, null) },
+                    onClick = {
+                      menuExpanded = false
+                      refresh(podcast.feedUrl)
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.mark_all_episodes_played)) },
+                    leadingIcon = { Icon(Icons.Filled.CheckCircle, null) },
+                    enabled = (unplayedEpisodeCounts[podcast.id] ?: 0) > 0 && !bulkActionBusy,
+                    onClick = {
+                      menuExpanded = false
+                      requestMarkAllPlayed(podcast.id)
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.remove_subscription)) },
+                    leadingIcon = { Icon(Icons.Filled.Delete, null) },
+                    enabled = !bulkActionBusy,
+                    onClick = {
+                      menuExpanded = false
+                      delete(podcast)
+                    },
+                )
+              }
             }
           }
         }
