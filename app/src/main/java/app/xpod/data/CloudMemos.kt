@@ -292,6 +292,7 @@ class CloudMemosApi @Inject constructor(private val client: OkHttpClient) {
   private suspend fun execute(request: Request): CloudMemosResponse {
     val response = client.newCall(request).await()
     return response.use {
+      if (!it.request.url.isHttps) throw InvalidCloudMemosUrlException()
       val body = requireNotNull(it.body)
       if (body.contentLength() > MAX_RESPONSE_BYTES) {
         throw CloudMemosProtocolException("Cloud Memos response exceeds the size limit")

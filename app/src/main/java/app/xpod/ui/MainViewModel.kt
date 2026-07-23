@@ -267,9 +267,16 @@ constructor(
   }
 
   fun removePodcast(id: String) = viewModelScope.launch {
-    podcasts.remove(id)
-    if (selected.value == id) selected.value = null
-    status.value = context.getString(R.string.subscription_removed)
+    runCatchingCancellable { podcasts.remove(id) }
+        .onSuccess { removedEpisodeIds ->
+          player.removeDeletedEpisodes(removedEpisodeIds)
+          if (selected.value == id) selected.value = null
+          status.value = context.getString(R.string.subscription_removed)
+        }
+        .onFailure { error ->
+          Log.e("XPOD", "Unable to remove podcast subscription", error)
+          status.value = context.getString(R.string.could_not_remove_subscription)
+        }
   }
 
   fun removeArticleFeed(id: String) = viewModelScope.launch {

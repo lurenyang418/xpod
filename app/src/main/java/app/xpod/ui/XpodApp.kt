@@ -243,6 +243,12 @@ private fun XpodHome(
       viewModel.dismissMemoDelete()
     }
   }
+  LaunchedEffect(nowPlaying == null) {
+    if (nowPlaying == null) {
+      fullPlayer = false
+      showSpeedPicker = false
+    }
+  }
   val handleDownload: (EpisodeEntity) -> Unit = { episode ->
     if (downloadStates[episode.id]?.isCompleted == true) {
       downloadToRemove = episode
@@ -330,26 +336,26 @@ private fun XpodHome(
   )
   val content: @Composable () -> Unit = {
     when {
-      fullPlayer ->
-          nowPlaying?.let { playing ->
-            FullPlayerScreen(
-                nowPlaying = playing,
-                podcast = state.podcasts.firstOrNull { it.id == playing.episode.podcastId },
-                onToggle = {
-                  requestNotificationPermission()
-                  viewModel.togglePlayback()
-                },
-                onSeek = viewModel::seekTo,
-                onSkipBack = { viewModel.seekBy(-10_000L) },
-                onSkipForward = { viewModel.seekBy(30_000L) },
-                onShowSpeedPicker = { showSpeedPicker = true },
-                onOpenPodcast = {
-                  destination = AppTab.Podcasts
-                  fullPlayer = false
-                  viewModel.selectPodcast(playing.episode.podcastId)
-                },
-            )
-          }
+      fullPlayer && nowPlaying != null -> {
+        val playing = requireNotNull(nowPlaying)
+        FullPlayerScreen(
+            nowPlaying = playing,
+            podcast = state.podcasts.firstOrNull { it.id == playing.episode.podcastId },
+            onToggle = {
+              requestNotificationPermission()
+              viewModel.togglePlayback()
+            },
+            onSeek = viewModel::seekTo,
+            onSkipBack = { viewModel.seekBy(-10_000L) },
+            onSkipForward = { viewModel.seekBy(30_000L) },
+            onShowSpeedPicker = { showSpeedPicker = true },
+            onOpenPodcast = {
+              destination = AppTab.Podcasts
+              fullPlayer = false
+              viewModel.selectPodcast(playing.episode.podcastId)
+            },
+        )
+      }
       selectedEpisode != null -> {
         val episode = selectedEpisode
         EpisodeDetailScreen(

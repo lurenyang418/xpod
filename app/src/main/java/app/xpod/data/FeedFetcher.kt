@@ -42,6 +42,9 @@ class FeedFetcher @Inject constructor(private val client: OkHttpClient) {
         .apply { timeout().timeout(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
         .execute()
         .use { response ->
+          if (!response.request.url.isHttps) {
+            throw UnsupportedFeedUrlException(response.request.url.toString())
+          }
           if (!response.isSuccessful) throw FeedHttpException(response.code)
           val body = requireNotNull(response.body)
           require(body.contentLength() <= MAX_FEED_BYTES || body.contentLength() == -1L) {

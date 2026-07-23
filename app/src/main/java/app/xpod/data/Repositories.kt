@@ -171,10 +171,17 @@ constructor(
     }
   }
 
-  suspend fun remove(podcastId: String) =
+  suspend fun remove(podcastId: String): Set<String> =
       withContext(Dispatchers.IO) {
-        database.episodes().allForPodcast(podcastId).forEach { downloads.remove(it.id) }
-        database.podcasts().delete(podcastId)
+        val episodes = database.episodes().allForPodcast(podcastId)
+        episodes.forEach { downloads.remove(it.id) }
+        val episodeIds = episodes.map(EpisodeEntity::id)
+        database.withTransaction {
+          database.playback().removeQueueEpisodesForPodcast(podcastId)
+          database.playback().clearStateForPodcast(podcastId, clock.millis())
+          database.podcasts().delete(podcastId)
+        }
+        episodeIds.toSet()
       }
 
   suspend fun refreshAll(): FeedRefreshResult = coroutineScope {
@@ -244,13 +251,14 @@ data class FeedRefreshResult(val shouldRetry: Boolean)
 class PlaybackRepository
 @Inject
 constructor(private val database: XpodDatabase, private val clock: Clock) {
-  suspend fun save(episodeId: String?, positionMs: Long, speed: Float) {
+  suspend fun save(episodeId: String?, positionMs: Long, speed: Float) = database.withTransaction {
+    val availableEpisodeId = episodeId?.takeIf { database.episodes().find(it) != null }
     database
         .playback()
         .save(
             PlaybackStateEntity(
-                episodeId = episodeId,
-                positionMs = positionMs,
+                episodeId = availableEpisodeId,
+                positionMs = positionMs.takeIf { availableEpisodeId != null } ?: 0L,
                 speed = speed,
                 updatedAtEpochMs = clock.millis(),
             )

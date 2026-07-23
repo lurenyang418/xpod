@@ -36,6 +36,6 @@ object AppModule {
           .connectTimeout(15, TimeUnit.SECONDS)
           .readTimeout(30, TimeUnit.SECONDS)
           .followRedirects(true)
-          .followSslRedirects(true)
+          .followSslRedirects(false)
           .build()
 }

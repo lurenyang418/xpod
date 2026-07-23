@@ -60,5 +60,14 @@ internal fun playbackStatus(
       else -> PlaybackStatus.Paused
     }
 
+internal fun shouldClearCompletedQueue(
+    playbackState: Int,
+    currentMediaItemIndex: Int,
+    mediaItemCount: Int,
+): Boolean =
+    playbackState == Player.STATE_ENDED &&
+        mediaItemCount > 0 &&
+        currentMediaItemIndex == mediaItemCount - 1
+
 internal fun Player.playbackStatus(): PlaybackStatus =
     playbackStatus(playbackState, playWhenReady, isPlaying, playerError != null)

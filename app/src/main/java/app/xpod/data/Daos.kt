@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
 data class EpisodeBulkState(
@@ -22,7 +23,7 @@ interface PodcastDao {
 
   @Query("SELECT * FROM PodcastEntity WHERE id = :id") suspend fun find(id: String): PodcastEntity?
 
-  @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(podcast: PodcastEntity)
+  @Upsert suspend fun upsert(podcast: PodcastEntity)
 
   @Query("DELETE FROM PodcastEntity WHERE id = :id") suspend fun delete(id: String)
 }
@@ -85,7 +86,7 @@ interface ArticleFeedDao {
   @Query("SELECT * FROM ArticleFeedEntity WHERE id = :id")
   suspend fun find(id: String): ArticleFeedEntity?
 
-  @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(feed: ArticleFeedEntity)
+  @Upsert suspend fun upsert(feed: ArticleFeedEntity)
 
   @Query("DELETE FROM ArticleFeedEntity WHERE id = :id") suspend fun delete(id: String)
 }
@@ -141,4 +142,14 @@ interface PlaybackDao {
   suspend fun insertQueue(items: List<QueueItemEntity>)
 
   @Query("DELETE FROM QueueItemEntity") suspend fun clearQueue()
+
+  @Query(
+      "DELETE FROM QueueItemEntity WHERE episodeId IN (SELECT id FROM EpisodeEntity WHERE podcastId = :podcastId)"
+  )
+  suspend fun removeQueueEpisodesForPodcast(podcastId: String)
+
+  @Query(
+      "UPDATE PlaybackStateEntity SET episodeId = NULL, positionMs = 0, updatedAtEpochMs = :updatedAtEpochMs WHERE episodeId IN (SELECT id FROM EpisodeEntity WHERE podcastId = :podcastId)"
+  )
+  suspend fun clearStateForPodcast(podcastId: String, updatedAtEpochMs: Long)
 }
