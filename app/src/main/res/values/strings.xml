@@ -119,6 +119,7 @@
     <string name="remove">Remove</string>
     <string name="cancel">Cancel</string>
     <string name="subscription_removed">Subscription removed</string>
+    <string name="could_not_remove_subscription">Could not remove subscription</string>
     <string name="queue">Queue</string>
     <string name="playback_paused">Paused</string>
     <string name="playback_buffering">Buffering</string>

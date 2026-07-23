@@ -17,6 +17,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -78,22 +79,35 @@ constructor(
   val queue: StateFlow<PlaybackQueue> = _queue.asStateFlow()
   private val playbackMutationMutex = Mutex()
   private var restoredQueueApplied = false
+  private val queueRestoreCompleted = CompletableDeferred<Unit>()
 
   init {
     scope.launch(Dispatchers.IO) {
-      val restoredEpisodes = playbackRepository.queue().mapNotNull { podcasts.episode(it) }
-      val currentEpisodeId = playbackRepository.state()?.episodeId
-      val currentIndex = restoredEpisodes.indexOfFirst { it.id == currentEpisodeId }
-      val episodes = restoredEpisodes.moveItemToFront(currentIndex)
-      withContext(Dispatchers.Main.immediate) {
-        playbackMutationMutex.withLock {
-          if (!restoredQueueApplied) {
-            _queue.value = PlaybackQueue(episodes, currentEpisodeId)
-            if (episodes !== restoredEpisodes) {
-              playbackRepository.replaceQueue(episodes.map { it.id })
+      try {
+        runCatchingCancellable {
+              val persistedEpisodeIds = playbackRepository.queue()
+              val restoredEpisodes = persistedEpisodeIds.mapNotNull { podcasts.episode(it) }
+              val currentEpisodeId = playbackRepository.state()?.episodeId
+              val currentIndex = restoredEpisodes.indexOfFirst { it.id == currentEpisodeId }
+              val episodes = restoredEpisodes.moveItemToFront(currentIndex)
+              withContext(Dispatchers.Main.immediate) {
+                playbackMutationMutex.withLock {
+                  if (!restoredQueueApplied) {
+                    _queue.value =
+                        PlaybackQueue(
+                            episodes,
+                            currentEpisodeId?.takeIf { id -> episodes.any { it.id == id } },
+                        )
+                    if (episodes.map(EpisodeEntity::id) != persistedEpisodeIds) {
+                      playbackRepository.replaceQueue(episodes.map(EpisodeEntity::id))
+                    }
+                  }
+                }
+              }
             }
-          }
-        }
+            .onFailure { Log.w("XPOD", "Unable to restore the playback queue", it) }
+      } finally {
+        queueRestoreCompleted.complete(Unit)
       }
     }
   }
@@ -113,6 +127,20 @@ constructor(
                               override fun onEvents(player: Player, events: Player.Events) {
                                 _nowPlaying.value =
                                     _nowPlaying.value?.copy(status = player.playbackStatus())
+                                if (
+                                    events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) &&
+                                        shouldClearCompletedQueue(
+                                            player.playbackState,
+                                            player.currentMediaItemIndex,
+                                            player.mediaItemCount,
+                                        )
+                                ) {
+                                  scope.launch {
+                                    playbackMutationMutex.withLock {
+                                      clearCompletedQueue(created)
+                                    }
+                                  }
+                                }
                               }
 
                               override fun onPlaybackParametersChanged(
@@ -197,20 +225,48 @@ constructor(
     }
   }
 
+  suspend fun removeDeletedEpisodes(episodeIds: Set<String>) {
+    if (episodeIds.isEmpty()) return
+    queueRestoreCompleted.await()
+    playbackMutationMutex.withLock {
+      restoredQueueApplied = true
+      val previous = _queue.value
+      val updated = previous.episodes.filterNot { it.id in episodeIds }
+      var activePlayer: MediaController? = null
+      runCatchingCancellable {
+            controller().also { player ->
+              activePlayer = player
+              val indexes =
+                  (0 until player.mediaItemCount).filter { index ->
+                    player.getMediaItemAt(index).mediaId in episodeIds
+                  }
+              indexes.asReversed().forEach(player::removeMediaItem)
+            }
+          }
+          .onFailure { error ->
+            Log.w("XPOD", "Unable to remove deleted episodes from the active player", error)
+            activePlayer?.let { player ->
+              runCatching { player.clearMediaItems() }
+                  .onFailure { Log.w("XPOD", "Unable to reset the active player", it) }
+            }
+          }
+      val currentEpisodeId =
+          activePlayer?.currentMediaItem?.mediaId?.takeIf { id -> updated.any { it.id == id } }
+              ?: previous.currentEpisodeId?.takeIf { it !in episodeIds && activePlayer == null }
+      _queue.value = PlaybackQueue(updated, currentEpisodeId)
+      if (_nowPlaying.value?.episode?.id in episodeIds || currentEpisodeId == null) {
+        _nowPlaying.value = currentEpisodeId?.let { id ->
+          val episode = updated.firstOrNull { it.id == id } ?: return@let null
+          activePlayer?.let { nowPlayingSnapshot(it, episode) }
+        }
+      }
+      if (updated.isEmpty()) progressJob?.cancel()
+    }
+  }
+
   suspend fun clearQueue() = playbackMutationMutex.withLock {
     restoredQueueApplied = true
-    val previous = _queue.value.episodes
-    val player = controller()
-    playbackRepository.replaceQueue(emptyList())
-    try {
-      player.clearMediaItems()
-    } catch (error: Throwable) {
-      rollbackPersistedQueue(previous, error)
-      throw error
-    }
-    progressJob?.cancel()
-    _queue.value = PlaybackQueue()
-    _nowPlaying.value = null
+    clearQueue(controller())
   }
 
   suspend fun moveQueueItem(fromIndex: Int, toIndex: Int) = playbackMutationMutex.withLock {
@@ -312,6 +368,35 @@ constructor(
     _nowPlaying.value = nowPlayingSnapshot(player, episode)
     _queue.value = PlaybackQueue(episodes, episode.id)
     if (appliedAction != QueueTransitionAction.Keep) persistQueueSafely(episodes)
+  }
+
+  private suspend fun clearCompletedQueue(player: MediaController) {
+    if (
+        !shouldClearCompletedQueue(
+            player.playbackState,
+            player.currentMediaItemIndex,
+            player.mediaItemCount,
+        )
+    ) {
+      return
+    }
+    restoredQueueApplied = true
+    runCatchingCancellable { clearQueue(player) }
+        .onFailure { Log.w("XPOD", "Unable to clear completed playback queue", it) }
+  }
+
+  private suspend fun clearQueue(player: MediaController) {
+    val previous = _queue.value.episodes
+    playbackRepository.replaceQueue(emptyList())
+    try {
+      player.clearMediaItems()
+    } catch (error: Throwable) {
+      rollbackPersistedQueue(previous, error)
+      throw error
+    }
+    progressJob?.cancel()
+    _queue.value = PlaybackQueue()
+    _nowPlaying.value = null
   }
 
   private fun applyPlayerTransitionAction(

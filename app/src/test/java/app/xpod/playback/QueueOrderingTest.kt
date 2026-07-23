@@ -151,4 +151,40 @@ class QueueOrderingTest {
     assertTrue(PlaybackStatus.Buffering.showsPauseAction)
     assertFalse(PlaybackStatus.Ended.showsPauseAction)
   }
+
+  @Test
+  fun completedFinalItemClearsQueue() {
+    assertTrue(
+        shouldClearCompletedQueue(
+            playbackState = Player.STATE_ENDED,
+            currentMediaItemIndex = 2,
+            mediaItemCount = 3,
+        )
+    )
+  }
+
+  @Test
+  fun queueIsKeptUntilFinalItemCompletes() {
+    assertFalse(
+        shouldClearCompletedQueue(
+            playbackState = Player.STATE_READY,
+            currentMediaItemIndex = 2,
+            mediaItemCount = 3,
+        )
+    )
+    assertFalse(
+        shouldClearCompletedQueue(
+            playbackState = Player.STATE_ENDED,
+            currentMediaItemIndex = 1,
+            mediaItemCount = 3,
+        )
+    )
+    assertFalse(
+        shouldClearCompletedQueue(
+            playbackState = Player.STATE_ENDED,
+            currentMediaItemIndex = 0,
+            mediaItemCount = 0,
+        )
+    )
+  }
 }

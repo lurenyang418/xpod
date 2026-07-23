@@ -44,7 +44,9 @@ class PlaybackService : MediaLibraryService() {
   private val playerScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
   private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private var session: MediaLibrarySession? = null
-  private var persistenceJob: Job? = null
+  private var periodicSaveJob: Job? = null
+  private val persistence = ConflatedSerialExecutor(ioScope, ::persistSafely)
+  private var acceptsPersistence = true
 
   override fun onCreate() {
     super.onCreate()
@@ -160,7 +162,7 @@ class PlaybackService : MediaLibraryService() {
             )
             .setSessionActivity(sessionActivity)
             .build()
-    persistenceJob = playerScope.launch {
+    periodicSaveJob = playerScope.launch {
       while (true) {
         delay(2_000)
         if (player.currentMediaItem != null) save(player)
@@ -169,8 +171,11 @@ class PlaybackService : MediaLibraryService() {
   }
 
   private fun save(player: Player) {
+    if (!acceptsPersistence) return
     val snapshot = snapshot(player)
-    ioScope.launch { persistSafely(snapshot) }
+    if (!persistence.submit(snapshot)) {
+      Log.w("XPOD", "Unable to queue playback state for persistence")
+    }
   }
 
   private fun snapshot(player: Player) =
@@ -206,12 +211,14 @@ class PlaybackService : MediaLibraryService() {
   }
 
   override fun onDestroy() {
-    session?.let {
-      save(it.player)
-      it.player.release()
-      it.release()
-    }
-    persistenceJob?.cancel()
+    val activeSession = session
+    activeSession?.let { save(it.player) }
+    acceptsPersistence = false
+    persistence.close()
+    persistence.invokeOnCompletion { ioScope.cancel() }
+    activeSession?.player?.release()
+    activeSession?.release()
+    periodicSaveJob?.cancel()
     playerScope.cancel()
     session = null
     super.onDestroy()

@@ -113,6 +113,7 @@
     <string name="remove">删除</string>
     <string name="cancel">取消</string>
     <string name="subscription_removed">订阅已删除</string>
+    <string name="could_not_remove_subscription">无法删除订阅</string>
     <string name="queue">播放队列</string>
     <string name="playback_paused">已暂停</string>
     <string name="playback_buffering">正在缓冲</string>

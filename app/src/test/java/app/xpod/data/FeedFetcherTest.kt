@@ -1,5 +1,6 @@
 package app.xpod.data
 
+import app.xpod.di.AppModule
 import java.io.IOException
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
@@ -9,6 +10,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FeedFetcherTest {
+  @Test
+  fun productionClientDoesNotFollowCrossProtocolRedirects() {
+    assertFalse(AppModule.httpClient().followSslRedirects)
+  }
+
   @Test
   fun rejectsNonHttpsUrlsBeforeMakingARequest() {
     val url = "http://unsafe.example/feed.xml"
