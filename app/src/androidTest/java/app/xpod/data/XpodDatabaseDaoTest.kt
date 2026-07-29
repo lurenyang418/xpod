@@ -177,6 +177,24 @@ class XpodDatabaseDaoTest {
     assertEquals(emptyList<LocalTrackEntity>(), database.localTracks().all())
   }
 
+  @Test
+  fun podcastEpisodesCanBeReadOneOrderedPageAtATime() = runBlocking {
+    database.podcasts().upsert(podcast())
+    val oldest = episode(id = "oldest", stableKey = "oldest").copy(publishedEpochMs = 1L)
+    val middle = episode(id = "middle", stableKey = "middle").copy(publishedEpochMs = 2L)
+    val newest = episode(id = "newest", stableKey = "newest").copy(publishedEpochMs = 3L)
+    database.episodes().upsertAll(listOf(oldest, newest, middle))
+
+    assertEquals(
+        listOf(newest, middle),
+        database.episodes().pageForPodcast("podcast", limit = 2, offset = 0),
+    )
+    assertEquals(
+        listOf(oldest),
+        database.episodes().pageForPodcast("podcast", limit = 2, offset = 2),
+    )
+  }
+
   private fun podcast(
       id: String = "podcast",
       feedUrl: String = "https://example.com/podcast.xml",

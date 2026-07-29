@@ -41,6 +41,15 @@ interface EpisodeDao {
   @Query("SELECT * FROM EpisodeEntity WHERE podcastId = :podcastId")
   suspend fun allForPodcast(podcastId: String): List<EpisodeEntity>
 
+  @Query(
+      "SELECT * FROM EpisodeEntity WHERE podcastId = :podcastId ORDER BY publishedEpochMs DESC LIMIT :limit OFFSET :offset"
+  )
+  suspend fun pageForPodcast(
+      podcastId: String,
+      limit: Int,
+      offset: Int,
+  ): List<EpisodeEntity>
+
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun upsertAll(episodes: List<EpisodeEntity>)
 

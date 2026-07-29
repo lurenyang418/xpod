@@ -15,4 +15,11 @@ class PlaybackLibraryTest {
     assertEquals(emptyList<String>(), pageItems(items, page = -1, pageSize = 2))
     assertEquals(emptyList<String>(), pageItems(items, page = 0, pageSize = 0))
   }
+
+  @Test
+  fun pageOffsetsRejectOverflow() {
+    assertEquals(0, pageOffset(page = 0, pageSize = 25))
+    assertEquals(50, pageOffset(page = 2, pageSize = 25))
+    assertEquals(null, pageOffset(page = Int.MAX_VALUE, pageSize = 2))
+  }
 }

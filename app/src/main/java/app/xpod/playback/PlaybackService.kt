@@ -264,26 +264,36 @@ class PlaybackService : MediaLibraryService() {
         SettableFuture.create<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>>()
     ioScope.launch {
       runCatchingCancellable {
-            val items =
-                when {
-                  parentId == ROOT_ID ->
-                      listOf(
-                          browsableItem(SUBSCRIPTIONS_ID, getString(R.string.subscriptions)),
-                          browsableItem(DOWNLOADS_ID, getString(R.string.downloads)),
-                          browsableItem(MUSIC_ID, getString(R.string.local_music)),
-                      )
-                  parentId == SUBSCRIPTIONS_ID -> database.podcasts().all().map(::podcastItem)
-                  parentId == DOWNLOADS_ID -> downloadedEpisodes()
-                  parentId == MUSIC_ID ->
-                      database.localTracks().all().map { mediaItem(it.asPlaybackItem()) }
-                  parentId.startsWith(PODCAST_ID_PREFIX) ->
-                      database
-                          .episodes()
-                          .allForPodcast(parentId.removePrefix(PODCAST_ID_PREFIX))
-                          .map { mediaItem(it.asPlaybackItem()) }
-                  else -> emptyList()
-                }
-            pageItems(items, page, pageSize)
+            if (parentId.startsWith(PODCAST_ID_PREFIX)) {
+              val offset = pageOffset(page, pageSize)
+              if (offset == null) {
+                emptyList()
+              } else {
+                database
+                    .episodes()
+                    .pageForPodcast(
+                        parentId.removePrefix(PODCAST_ID_PREFIX),
+                        limit = pageSize,
+                        offset = offset,
+                    )
+                    .map { mediaItem(it.asPlaybackItem()) }
+              }
+            } else {
+              val items =
+                  when (parentId) {
+                    ROOT_ID ->
+                        listOf(
+                            browsableItem(SUBSCRIPTIONS_ID, getString(R.string.subscriptions)),
+                            browsableItem(DOWNLOADS_ID, getString(R.string.downloads)),
+                            browsableItem(MUSIC_ID, getString(R.string.local_music)),
+                        )
+                    SUBSCRIPTIONS_ID -> database.podcasts().all().map(::podcastItem)
+                    DOWNLOADS_ID -> downloadedEpisodes()
+                    MUSIC_ID -> database.localTracks().all().map { mediaItem(it.asPlaybackItem()) }
+                    else -> emptyList()
+                  }
+              pageItems(items, page, pageSize)
+            }
           }
           .onSuccess { items -> future.set(LibraryResult.ofItemList(items, params)) }
           .onFailure { error ->
@@ -426,10 +436,14 @@ class PlaybackService : MediaLibraryService() {
 }
 
 internal fun <T> pageItems(items: List<T>, page: Int, pageSize: Int): List<T> {
-  if (page < 0 || pageSize <= 0) return emptyList()
-  val from = page.toLong() * pageSize
+  val from = pageOffset(page, pageSize) ?: return emptyList()
   if (from >= items.size) return emptyList()
-  return items.subList(from.toInt(), minOf(from + pageSize, items.size.toLong()).toInt())
+  return items.subList(from, minOf(from.toLong() + pageSize, items.size.toLong()).toInt())
+}
+
+internal fun pageOffset(page: Int, pageSize: Int): Int? {
+  if (page < 0 || pageSize <= 0) return null
+  return (page.toLong() * pageSize).takeIf { it <= Int.MAX_VALUE }?.toInt()
 }
 
 private fun Float?.orDefault(): Float = this ?: 1f

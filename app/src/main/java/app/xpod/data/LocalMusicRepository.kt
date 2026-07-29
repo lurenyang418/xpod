@@ -12,6 +12,7 @@ import androidx.core.net.toUri
 import androidx.room.withTransaction
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.ArrayDeque
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resumeWithException
@@ -223,7 +224,7 @@ constructor(
 
 internal fun isSupportedAudioDocument(mimeType: String, displayName: String): Boolean {
   if (mimeType.startsWith("audio/", ignoreCase = true)) return true
-  return displayName.substringAfterLast('.', "").lowercase() in
+  return displayName.substringAfterLast('.', "").lowercase(Locale.ROOT) in
       setOf("aac", "amr", "flac", "m4a", "mp3", "oga", "ogg", "opus", "wav", "wma")
 }
 
