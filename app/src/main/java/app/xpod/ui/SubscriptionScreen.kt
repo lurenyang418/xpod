@@ -372,7 +372,7 @@ internal fun EpisodeCard(
           }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-          val active = nowPlaying?.episode?.id == episode.id
+          val active = nowPlaying?.item?.id == episode.id
           IconButton(onClick = { if (active) togglePlayback() else play(episode) }) {
             Icon(
                 if (active && nowPlaying.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,

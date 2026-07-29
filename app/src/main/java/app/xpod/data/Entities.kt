@@ -1,5 +1,6 @@
 package app.xpod.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -69,17 +70,83 @@ data class ArticleEntity(
     val isFavorite: Boolean = false,
 )
 
+@Entity(indices = [Index("treeUri"), Index("title")])
+data class LocalTrackEntity(
+    @PrimaryKey val id: String,
+    val documentUri: String,
+    val treeUri: String,
+    val title: String,
+    val artist: String,
+    val album: String,
+    val durationMs: Long,
+    val modifiedEpochMs: Long,
+)
+
+enum class PlaybackMediaType {
+  Podcast,
+  Music;
+
+  companion object {
+    fun fromStored(value: String): PlaybackMediaType =
+        entries.firstOrNull { it.name == value } ?: Podcast
+
+    fun fromMediaId(mediaId: String?): PlaybackMediaType =
+        if (mediaId?.startsWith(LOCAL_TRACK_ID_PREFIX) == true) Music else Podcast
+  }
+}
+
+const val LOCAL_TRACK_ID_PREFIX = "local:"
+
+data class PlaybackItem(
+    val id: String,
+    val mediaType: PlaybackMediaType,
+    val title: String,
+    val subtitle: String,
+    val uri: String,
+    val artworkUri: String? = null,
+    val sourceId: String? = null,
+)
+
+fun EpisodeEntity.asPlaybackItem(): PlaybackItem =
+    PlaybackItem(
+        id = id,
+        mediaType = PlaybackMediaType.Podcast,
+        title = title,
+        subtitle = description,
+        uri = audioUrl,
+        artworkUri = artworkUrl,
+        sourceId = podcastId,
+    )
+
+fun LocalTrackEntity.asPlaybackItem(): PlaybackItem =
+    PlaybackItem(
+        id = id,
+        mediaType = PlaybackMediaType.Music,
+        title = title,
+        subtitle = artist.ifBlank { album },
+        uri = documentUri,
+    )
+
 @Entity
 data class PlaybackStateEntity(
-    @PrimaryKey val key: String = "active",
-    val episodeId: String?,
+    @PrimaryKey val key: String,
+    // Retain the legacy column name so existing playback rows migrate without a destructive rename.
+    @ColumnInfo(name = "episodeId") val mediaId: String?,
+    val mediaType: String,
     val positionMs: Long = 0,
     val speed: Float = 1f,
     val updatedAtEpochMs: Long = 0,
 )
 
-@Entity(indices = [Index(value = ["position"], unique = true)])
+@Entity(indices = [Index(value = ["mediaType", "position"], unique = true)])
 data class QueueItemEntity(
-    @PrimaryKey val episodeId: String,
+    // Retain the legacy column name so existing queue rows migrate without a destructive rename.
+    @PrimaryKey @ColumnInfo(name = "episodeId") val mediaId: String,
+    val mediaType: String,
     val position: Int,
+)
+
+data class PlaybackReference(
+    val mediaId: String,
+    val mediaType: PlaybackMediaType,
 )

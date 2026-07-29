@@ -119,9 +119,10 @@
     <string name="playback_buffering">正在缓冲</string>
     <string name="playback_finished">播放完毕</string>
     <string name="playback_error">播放出错</string>
+    <string name="unknown_duration">--:--</string>
     <string name="clear_queue">清空队列</string>
     <string name="clear_queue_title">清空播放队列？</string>
-    <string name="clear_queue_message">当前播放将停止，队列中的所有单集都会被移除。</string>
+    <string name="clear_queue_message">当前播放将停止，队列中的所有项目都会被移除。</string>
     <string name="play_next">下一首播放</string>
     <string name="add_to_queue">加入队尾</string>
     <string name="added_next">已加入下一首播放</string>
@@ -225,4 +226,26 @@
     <string name="cloud_memo_restore_failed_reason">无法恢复 Memo：%1$s</string>
     <string name="cloud_memo_delete_failed_reason">无法将 Memo 移到回收站：%1$s</string>
     <string name="cloud_memo_version_conflict">这条 Memo 已在其他位置更新，列表已刷新。</string>
+    <string name="local_music">本地音乐</string>
+    <string name="no_local_music_folder">尚未选择音乐文件夹</string>
+    <string name="local_music_folder_summary">选择一个文件夹来建立仅保存在设备上的音乐库。XPOD 只会读取你选择的目录。</string>
+    <string name="choose_music_folder">选择音乐文件夹</string>
+    <string name="refresh_local_music">刷新本地音乐</string>
+    <string name="cancel_local_music_scan">取消扫描</string>
+    <string name="local_music_scan_cancelled">已取消本地音乐扫描</string>
+    <string name="search_local_music">搜索标题、艺术家或专辑</string>
+    <plurals name="local_track_count">
+        <item quantity="other">%1$d 首曲目</item>
+    </plurals>
+    <string name="play_all">播放全部</string>
+    <string name="no_local_tracks">此文件夹中没有可播放的音频文件。</string>
+    <string name="no_music_matches">没有符合当前搜索条件的本地曲目。</string>
+    <string name="unknown_artist">未知艺术家</string>
+    <string name="local_track_actions">更多曲目操作</string>
+    <string name="previous_track">上一首</string>
+    <string name="next_track">下一首</string>
+    <string name="local_music_scan_failed">无法读取所选音乐文件夹。如果访问权限已失效，请重新选择。</string>
+    <plurals name="local_tracks_scanned">
+        <item quantity="other">已找到 %1$d 首本地曲目</item>
+    </plurals>
 </resources>

@@ -7,7 +7,14 @@ class TabOrderTest {
   @Test
   fun missingAndUnknownTabsAreNormalized() {
     assertEquals(
-        listOf(AppTab.Memos, AppTab.Podcasts, AppTab.Reader, AppTab.Library, AppTab.Settings),
+        listOf(
+            AppTab.Memos,
+            AppTab.Podcasts,
+            AppTab.Reader,
+            AppTab.Library,
+            AppTab.Music,
+            AppTab.Settings,
+        ),
         parseTabOrder("Memos,Unknown,Podcasts,Memos"),
     )
   }
@@ -17,7 +24,14 @@ class TabOrderTest {
     val moved = moveTab(defaultTabOrder, AppTab.Memos, -2)
 
     assertEquals(
-        listOf(AppTab.Podcasts, AppTab.Memos, AppTab.Reader, AppTab.Library, AppTab.Settings),
+        listOf(
+            AppTab.Podcasts,
+            AppTab.Reader,
+            AppTab.Memos,
+            AppTab.Library,
+            AppTab.Music,
+            AppTab.Settings,
+        ),
         moved,
     )
     assertEquals(moved, moveTab(moved, AppTab.Podcasts, -1))

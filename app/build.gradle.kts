@@ -103,10 +103,13 @@ dependencies {
   implementation(libs.markdown.renderer.m3)
   implementation(libs.markdown.renderer.coil3)
   debugImplementation(libs.androidx.compose.ui.tooling)
+  debugImplementation(libs.androidx.compose.ui.test.manifest)
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)
   testImplementation(libs.kxml)
   androidTestImplementation(libs.androidx.room.testing)
   androidTestImplementation(libs.androidx.test.runner)
   androidTestImplementation(libs.androidx.test.ext.junit)
+  androidTestImplementation(platform(libs.androidx.compose.bom))
+  androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 }

@@ -95,6 +95,50 @@ class XpodDatabaseMigrationTest {
         }
   }
 
+  @Test
+  fun migrate3To4PreservesPodcastPlaybackAndCreatesLocalMusicTables() {
+    helper.createDatabase(TEST_DATABASE, 3).apply {
+      execSQL(
+          "INSERT INTO PlaybackStateEntity (`key`, episodeId, positionMs, speed, updatedAtEpochMs) VALUES ('active', 'episode', 321, 1.25, 999)"
+      )
+      execSQL("INSERT INTO QueueItemEntity (episodeId, position) VALUES ('episode', 0)")
+      close()
+    }
+
+    helper
+        .runMigrationsAndValidate(
+            TEST_DATABASE,
+            4,
+            true,
+            XpodDatabaseMigrations.MIGRATION_3_4,
+        )
+        .use { database ->
+          database
+              .query(
+                  "SELECT `key`, episodeId, mediaType, positionMs, speed FROM PlaybackStateEntity"
+              )
+              .use { cursor ->
+                cursor.moveToFirst()
+                assertEquals(PlaybackMediaType.Podcast.name, cursor.getString(0))
+                assertEquals("episode", cursor.getString(1))
+                assertEquals(PlaybackMediaType.Podcast.name, cursor.getString(2))
+                assertEquals(321L, cursor.getLong(3))
+                assertEquals(1.25f, cursor.getFloat(4), 0f)
+              }
+          database.query("SELECT episodeId, mediaType, position FROM QueueItemEntity").use { cursor
+            ->
+            cursor.moveToFirst()
+            assertEquals("episode", cursor.getString(0))
+            assertEquals(PlaybackMediaType.Podcast.name, cursor.getString(1))
+            assertEquals(0, cursor.getInt(2))
+          }
+          database.query("SELECT COUNT(*) FROM LocalTrackEntity").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(0, cursor.getInt(0))
+          }
+        }
+  }
+
   private companion object {
     const val TEST_DATABASE = "xpod-migration-test"
   }

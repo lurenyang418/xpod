@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -78,6 +79,7 @@ import app.xpod.data.ArticleFeedEntity
 import app.xpod.data.CloudMemo
 import app.xpod.data.CloudMemoVisibility
 import app.xpod.data.EpisodeEntity
+import app.xpod.data.PlaybackMediaType
 import app.xpod.data.PodcastEntity
 import app.xpod.data.ThemeMode
 import app.xpod.data.cloudMemoWebUrl
@@ -132,11 +134,16 @@ private fun XpodHome(
   val wifiOnlyDownloads by viewModel.wifiOnlyDownloads.collectAsStateWithLifecycle()
   val cloudMemos by viewModel.cloudMemosState.collectAsStateWithLifecycle()
   val memos by viewModel.memosState.collectAsStateWithLifecycle()
+  val music by viewModel.musicState.collectAsStateWithLifecycle()
   val bulkActions by viewModel.bulkActionsState.collectAsStateWithLifecycle()
   val tabOrder by viewModel.tabOrder.collectAsStateWithLifecycle()
   val enabledTabs by viewModel.enabledTabs.collectAsStateWithLifecycle()
   val visibleTabs = tabOrder.filter(enabledTabs::contains)
   val queue by viewModel.queue.collectAsStateWithLifecycle()
+  val musicFolderPicker =
+      rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri?.let(viewModel::selectMusicFolder)
+      }
   val containerWidth = LocalWindowInfo.current.containerSize.width
   val wide = with(LocalDensity.current) { containerWidth.toDp() >= 600.dp }
   val snackbar = remember { SnackbarHostState() }
@@ -216,7 +223,7 @@ private fun XpodHome(
   var selectedEpisodeId by rememberSaveable { mutableStateOf<String?>(null) }
   var selectedArticleId by rememberSaveable { mutableStateOf<String?>(null) }
   val selectedEpisode = selectedEpisodeId?.let { id ->
-    (state.episodes + state.libraryEpisodes + queue.episodes).firstOrNull { it.id == id }
+    (state.episodes + state.libraryEpisodes).firstOrNull { it.id == id }
   }
   val selectedArticle = selectedArticleId?.let { id ->
     state.articles.firstOrNull { article -> article.id == id }
@@ -248,6 +255,9 @@ private fun XpodHome(
       fullPlayer = false
       showSpeedPicker = false
     }
+  }
+  LaunchedEffect(nowPlaying?.item?.mediaType) {
+    if (nowPlaying?.item?.mediaType == PlaybackMediaType.Music) showSpeedPicker = false
   }
   val handleDownload: (EpisodeEntity) -> Unit = { episode ->
     if (downloadStates[episode.id]?.isCompleted == true) {
@@ -340,19 +350,20 @@ private fun XpodHome(
         val playing = requireNotNull(nowPlaying)
         FullPlayerScreen(
             nowPlaying = playing,
-            podcast = state.podcasts.firstOrNull { it.id == playing.episode.podcastId },
-            onToggle = {
-              requestNotificationPermission()
-              viewModel.togglePlayback()
-            },
+            podcast = state.podcasts.firstOrNull { it.id == playing.item.sourceId },
+            onToggle = viewModel::togglePlayback,
             onSeek = viewModel::seekTo,
             onSkipBack = { viewModel.seekBy(-10_000L) },
             onSkipForward = { viewModel.seekBy(30_000L) },
+            onPrevious = viewModel::skipToPrevious,
+            onNext = viewModel::skipToNext,
             onShowSpeedPicker = { showSpeedPicker = true },
             onOpenPodcast = {
-              destination = AppTab.Podcasts
-              fullPlayer = false
-              viewModel.selectPodcast(playing.episode.podcastId)
+              playing.item.sourceId?.let { podcastId ->
+                destination = AppTab.Podcasts
+                fullPlayer = false
+                viewModel.selectPodcast(podcastId)
+              }
             },
         )
       }
@@ -360,15 +371,9 @@ private fun XpodHome(
         val episode = selectedEpisode
         EpisodeDetailScreen(
             episode = episode,
-            isPlaying = nowPlaying?.episode?.id == episode.id && nowPlaying?.isPlaying == true,
-            onPlay = {
-              requestNotificationPermission()
-              viewModel.play(episode)
-            },
-            onTogglePlayback = {
-              requestNotificationPermission()
-              viewModel.togglePlayback()
-            },
+            isPlaying = nowPlaying?.item?.id == episode.id && nowPlaying?.isPlaying == true,
+            onPlay = { viewModel.play(episode) },
+            onTogglePlayback = viewModel::togglePlayback,
             onFavorite = { viewModel.toggleFavorite(episode.id) },
             onPlayed = { viewModel.markPlayed(episode.id, !episode.isPlayed) },
             downloadState = downloadStates[episode.id],
@@ -413,20 +418,14 @@ private fun XpodHome(
               wide = wide,
               select = viewModel::selectPodcast,
               refresh = viewModel::refresh,
-              play = {
-                requestNotificationPermission()
-                viewModel.play(it)
-              },
+              play = viewModel::play,
               download = handleDownload,
               favorite = viewModel::toggleFavorite,
               played = viewModel::markPlayed,
               nowPlaying = nowPlaying,
               downloadStates = downloadStates,
               openEpisode = { selectedEpisodeId = it.id },
-              togglePlayback = {
-                requestNotificationPermission()
-                viewModel.togglePlayback()
-              },
+              togglePlayback = viewModel::togglePlayback,
               addToQueue = viewModel::addToQueue,
               showQueue = { showQueue = true },
               delete = { podcastToDelete = it },
@@ -437,20 +436,14 @@ private fun XpodHome(
       destination == AppTab.Library ->
           LibraryScreen(
               state = state,
-              play = {
-                requestNotificationPermission()
-                viewModel.play(it)
-              },
+              play = viewModel::play,
               favorite = viewModel::toggleFavorite,
               download = handleDownload,
               played = viewModel::markPlayed,
               nowPlaying = nowPlaying,
               downloadStates = downloadStates,
               openEpisode = { selectedEpisodeId = it.id },
-              togglePlayback = {
-                requestNotificationPermission()
-                viewModel.togglePlayback()
-              },
+              togglePlayback = viewModel::togglePlayback,
               addToQueue = viewModel::addToQueue,
           )
       destination == AppTab.Reader ->
@@ -466,6 +459,19 @@ private fun XpodHome(
               delete = { articleFeedToDelete = it },
               requestMarkAllRead = viewModel::requestArticlesMarkAllRead,
               bulkActionBusy = bulkActions.isBusy,
+          )
+      destination == AppTab.Music ->
+          MusicScreen(
+              state = music,
+              nowPlaying = nowPlaying,
+              chooseFolder = { musicFolderPicker.launch(null) },
+              refresh = viewModel::refreshLocalMusic,
+              cancelScan = viewModel::cancelLocalMusicScan,
+              setQuery = viewModel::setMusicQuery,
+              play = { track -> viewModel.playMusic(music.visibleTracks, track.id) },
+              togglePlayback = viewModel::togglePlayback,
+              playNext = viewModel::playMusicNext,
+              addToQueue = viewModel::addMusicToQueue,
           )
       destination == AppTab.Memos ->
           MemosScreen(
@@ -528,10 +534,9 @@ private fun XpodHome(
               selectedEpisodeId = null
               selectedArticleId = null
             },
-            onToggle = {
-              requestNotificationPermission()
-              viewModel.togglePlayback()
-            },
+            onToggle = viewModel::togglePlayback,
+            onPrevious = viewModel::skipToPrevious,
+            onNext = viewModel::skipToNext,
             onOpenPlayer = { fullPlayer = true },
             onShowSpeedPicker = { showSpeedPicker = true },
         )
@@ -565,7 +570,7 @@ private fun XpodHome(
     }
   }
   nowPlaying
-      ?.takeIf { showSpeedPicker }
+      ?.takeIf { showSpeedPicker && it.item.mediaType == PlaybackMediaType.Podcast }
       ?.let { playing ->
         SpeedPicker(
             selected = playing.speed,
@@ -579,11 +584,15 @@ private fun XpodHome(
   if (showQueue) {
     QueueSheet(
         queue = queue,
-        playbackStatus = nowPlaying?.takeIf { it.episode.id == queue.currentEpisodeId }?.status,
+        playbackStatus = nowPlaying?.takeIf { it.item.id == queue.currentMediaId }?.status,
         onDismiss = { showQueue = false },
         onClear = { confirmClearQueue = true },
-        onOpenEpisode = {
-          selectedEpisodeId = it.id
+        onOpenItem = {
+          if (it.mediaType == PlaybackMediaType.Podcast) {
+            selectedEpisodeId = it.id
+          } else {
+            destination = AppTab.Music
+          }
           showQueue = false
         },
         onPlay = viewModel::playQueueItem,
@@ -757,12 +766,23 @@ private fun HomeBottomBar(
     tabOrder: List<AppTab>,
     onDestinationSelected: (AppTab) -> Unit,
     onToggle: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
     onOpenPlayer: () -> Unit,
     onShowSpeedPicker: () -> Unit,
 ) {
   if (!visible) return
   Column {
-    nowPlaying?.let { MiniPlayer(it, onToggle, onOpenPlayer, onShowSpeedPicker) }
+    nowPlaying?.let {
+      MiniPlayer(
+          nowPlaying = it,
+          onToggle = onToggle,
+          onPrevious = onPrevious,
+          onNext = onNext,
+          onOpen = onOpenPlayer,
+          onShowSpeedPicker = onShowSpeedPicker,
+      )
+    }
     NavigationBar {
       tabOrder.forEach { item ->
         NavigationBarItem(
@@ -883,6 +903,7 @@ private fun DestinationIcon(destination: AppTab) =
       AppTab.Podcasts -> Icon(Icons.Filled.RssFeed, null)
       AppTab.Reader -> Icon(Icons.AutoMirrored.Filled.Article, null)
       AppTab.Library -> Icon(Icons.Filled.LibraryMusic, null)
+      AppTab.Music -> Icon(Icons.Filled.MusicNote, null)
       AppTab.Memos -> Icon(Icons.AutoMirrored.Filled.Notes, null)
       AppTab.Settings -> Icon(Icons.Filled.Settings, null)
     }
@@ -894,6 +915,7 @@ private fun destinationLabel(destination: AppTab): String =
           AppTab.Podcasts -> R.string.podcasts
           AppTab.Reader -> R.string.reader
           AppTab.Library -> R.string.library
+          AppTab.Music -> R.string.local_music
           AppTab.Memos -> R.string.memos
           AppTab.Settings -> R.string.settings
         }
