@@ -21,4 +21,5 @@ The smaller release APK is produced at `app/build/outputs/apk/release/app-arm64-
 - Optionally connect a [Cloud Memos](https://github.com/lurenyang418/cloud-memos) instance with a read-write API token, browse/search/create memos in a dedicated tab, and save episodes or articles as private Markdown memos. The token is encrypted with Android Keystore.
 - Reorder or hide optional navigation tabs from Settings; the visible order is shared by the phone bottom bar and tablet navigation rail.
 - Play audio through a Media3 foreground service.
+- Build and play a private local music library from a user-selected folder.
 - Download individual episodes only on unmetered networks.

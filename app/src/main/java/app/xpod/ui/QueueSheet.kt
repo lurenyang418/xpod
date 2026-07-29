@@ -39,7 +39,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.xpod.R
-import app.xpod.data.EpisodeEntity
+import app.xpod.data.PlaybackItem
 import app.xpod.playback.PlaybackQueue
 import app.xpod.playback.PlaybackStatus
 
@@ -50,7 +50,7 @@ internal fun QueueSheet(
     playbackStatus: PlaybackStatus?,
     onDismiss: () -> Unit,
     onClear: () -> Unit,
-    onOpenEpisode: (EpisodeEntity) -> Unit,
+    onOpenItem: (PlaybackItem) -> Unit,
     onPlay: (String) -> Unit,
     onTogglePlayback: () -> Unit,
     onMove: (Int, Int) -> Unit,
@@ -67,7 +67,7 @@ internal fun QueueSheet(
               Modifier.weight(1f),
               style = MaterialTheme.typography.titleLarge,
           )
-          IconButton(onClick = onClear, enabled = queue.episodes.isNotEmpty()) {
+          IconButton(onClick = onClear, enabled = queue.items.isNotEmpty()) {
             Icon(Icons.Filled.Delete, stringResource(R.string.clear_queue))
           }
         }
@@ -75,8 +75,8 @@ internal fun QueueSheet(
             Modifier.heightIn(max = 360.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-          itemsIndexed(queue.episodes, key = { _, episode -> episode.id }) { index, episode ->
-            val active = episode.id == queue.currentEpisodeId
+          itemsIndexed(queue.items, key = { _, item -> item.id }) { index, item ->
+            val active = item.id == queue.currentMediaId
             val activeStatus = playbackStatus.takeIf { active } ?: PlaybackStatus.Paused
             Row(
                 Modifier.fillMaxWidth()
@@ -88,14 +88,14 @@ internal fun QueueSheet(
                     .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-              Artwork(episode.artworkUrl, null, Modifier.size(44.dp))
+              Artwork(item.artworkUri, null, Modifier.size(44.dp), item.mediaType)
               Column(
                   Modifier.weight(1f)
-                      .clickable { onOpenEpisode(episode) }
+                      .clickable { onOpenItem(item) }
                       .padding(horizontal = 12.dp, vertical = 6.dp)
               ) {
                 Text(
-                    episode.title,
+                    item.title,
                     color =
                         if (active) MaterialTheme.colorScheme.onSecondaryContainer
                         else MaterialTheme.colorScheme.onSurface,
@@ -116,9 +116,16 @@ internal fun QueueSheet(
                       color = MaterialTheme.colorScheme.primary,
                       style = MaterialTheme.typography.labelMedium,
                   )
+                } else if (item.subtitle.isNotBlank()) {
+                  Text(
+                      item.subtitle,
+                      maxLines = 1,
+                      overflow = TextOverflow.Ellipsis,
+                      style = MaterialTheme.typography.bodySmall,
+                  )
                 }
               }
-              IconButton(onClick = { if (active) onTogglePlayback() else onPlay(episode.id) }) {
+              IconButton(onClick = { if (active) onTogglePlayback() else onPlay(item.id) }) {
                 val playing = active && activeStatus.showsPauseAction
                 Icon(
                     if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
@@ -141,9 +148,7 @@ internal fun QueueSheet(
                         menuExpanded = false
                       },
                       enabled =
-                          index > 0 &&
-                              !active &&
-                              queue.episodes[index - 1].id != queue.currentEpisodeId,
+                          index > 0 && !active && queue.items[index - 1].id != queue.currentMediaId,
                   )
                   DropdownMenuItem(
                       text = { Text(stringResource(R.string.move_down)) },
@@ -151,12 +156,12 @@ internal fun QueueSheet(
                         onMove(index, index + 1)
                         menuExpanded = false
                       },
-                      enabled = index < queue.episodes.lastIndex && !active,
+                      enabled = index < queue.items.lastIndex && !active,
                   )
                   DropdownMenuItem(
                       text = { Text(stringResource(R.string.remove_from_queue)) },
                       onClick = {
-                        onRemove(episode.id)
+                        onRemove(item.id)
                         menuExpanded = false
                       },
                   )

@@ -41,6 +41,15 @@ interface EpisodeDao {
   @Query("SELECT * FROM EpisodeEntity WHERE podcastId = :podcastId")
   suspend fun allForPodcast(podcastId: String): List<EpisodeEntity>
 
+  @Query(
+      "SELECT * FROM EpisodeEntity WHERE podcastId = :podcastId ORDER BY publishedEpochMs DESC LIMIT :limit OFFSET :offset"
+  )
+  suspend fun pageForPodcast(
+      podcastId: String,
+      limit: Int,
+      offset: Int,
+  ): List<EpisodeEntity>
+
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun upsertAll(episodes: List<EpisodeEntity>)
 
@@ -129,27 +138,53 @@ interface ArticleDao {
 }
 
 @Dao
+interface LocalTrackDao {
+  @Query("SELECT * FROM LocalTrackEntity ORDER BY title COLLATE NOCASE, artist COLLATE NOCASE")
+  fun observeAll(): Flow<List<LocalTrackEntity>>
+
+  @Query("SELECT * FROM LocalTrackEntity ORDER BY title COLLATE NOCASE, artist COLLATE NOCASE")
+  suspend fun all(): List<LocalTrackEntity>
+
+  @Query("SELECT * FROM LocalTrackEntity WHERE id = :id")
+  suspend fun find(id: String): LocalTrackEntity?
+
+  @Query("SELECT id FROM LocalTrackEntity") suspend fun ids(): List<String>
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun upsertAll(items: List<LocalTrackEntity>)
+
+  @Query("DELETE FROM LocalTrackEntity") suspend fun clear()
+}
+
+@Dao
 interface PlaybackDao {
-  @Query("SELECT * FROM PlaybackStateEntity WHERE key = 'active'")
+  @Query("SELECT * FROM PlaybackStateEntity ORDER BY updatedAtEpochMs DESC LIMIT 1")
   suspend fun current(): PlaybackStateEntity?
+
+  @Query("SELECT * FROM PlaybackStateEntity WHERE key = :mediaType")
+  suspend fun state(mediaType: String): PlaybackStateEntity?
+
+  @Query("SELECT MAX(updatedAtEpochMs) FROM PlaybackStateEntity")
+  suspend fun latestUpdatedAt(): Long?
 
   @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun save(state: PlaybackStateEntity)
 
-  @Query("SELECT * FROM QueueItemEntity ORDER BY position")
-  suspend fun queue(): List<QueueItemEntity>
+  @Query("SELECT * FROM QueueItemEntity WHERE mediaType = :mediaType ORDER BY position")
+  suspend fun queue(mediaType: String): List<QueueItemEntity>
 
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun insertQueue(items: List<QueueItemEntity>)
 
-  @Query("DELETE FROM QueueItemEntity") suspend fun clearQueue()
+  @Query("DELETE FROM QueueItemEntity WHERE mediaType = :mediaType")
+  suspend fun clearQueue(mediaType: String)
 
   @Query(
-      "DELETE FROM QueueItemEntity WHERE episodeId IN (SELECT id FROM EpisodeEntity WHERE podcastId = :podcastId)"
+      "DELETE FROM QueueItemEntity WHERE mediaType = 'Podcast' AND episodeId IN (SELECT id FROM EpisodeEntity WHERE podcastId = :podcastId)"
   )
   suspend fun removeQueueEpisodesForPodcast(podcastId: String)
 
   @Query(
-      "UPDATE PlaybackStateEntity SET episodeId = NULL, positionMs = 0, updatedAtEpochMs = :updatedAtEpochMs WHERE episodeId IN (SELECT id FROM EpisodeEntity WHERE podcastId = :podcastId)"
+      "UPDATE PlaybackStateEntity SET episodeId = NULL, positionMs = 0 WHERE mediaType = 'Podcast' AND episodeId IN (SELECT id FROM EpisodeEntity WHERE podcastId = :podcastId)"
   )
-  suspend fun clearStateForPodcast(podcastId: String, updatedAtEpochMs: Long)
+  suspend fun clearStateForPodcast(podcastId: String)
 }

@@ -508,6 +508,7 @@ private fun tabLabel(tab: AppTab): String =
           AppTab.Podcasts -> R.string.podcasts
           AppTab.Reader -> R.string.reader
           AppTab.Library -> R.string.library
+          AppTab.Music -> R.string.local_music
           AppTab.Memos -> R.string.memos
           AppTab.Settings -> R.string.settings
         }

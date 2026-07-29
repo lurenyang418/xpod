@@ -34,4 +34,30 @@ object XpodDatabaseMigrations {
           )
         }
       }
+
+  val MIGRATION_3_4 =
+      object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+          db.execSQL(
+              "CREATE TABLE IF NOT EXISTS `LocalTrackEntity` (`id` TEXT NOT NULL, `documentUri` TEXT NOT NULL, `treeUri` TEXT NOT NULL, `title` TEXT NOT NULL, `artist` TEXT NOT NULL, `album` TEXT NOT NULL, `durationMs` INTEGER NOT NULL, `modifiedEpochMs` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+          )
+          db.execSQL(
+              "CREATE INDEX IF NOT EXISTS `index_LocalTrackEntity_treeUri` ON `LocalTrackEntity` (`treeUri`)"
+          )
+          db.execSQL(
+              "CREATE INDEX IF NOT EXISTS `index_LocalTrackEntity_title` ON `LocalTrackEntity` (`title`)"
+          )
+          db.execSQL(
+              "ALTER TABLE `PlaybackStateEntity` ADD COLUMN `mediaType` TEXT NOT NULL DEFAULT 'Podcast'"
+          )
+          db.execSQL("UPDATE `PlaybackStateEntity` SET `key` = 'Podcast' WHERE `key` = 'active'")
+          db.execSQL(
+              "ALTER TABLE `QueueItemEntity` ADD COLUMN `mediaType` TEXT NOT NULL DEFAULT 'Podcast'"
+          )
+          db.execSQL("DROP INDEX IF EXISTS `index_QueueItemEntity_position`")
+          db.execSQL(
+              "CREATE UNIQUE INDEX IF NOT EXISTS `index_QueueItemEntity_mediaType_position` ON `QueueItemEntity` (`mediaType`, `position`)"
+          )
+        }
+      }
 }

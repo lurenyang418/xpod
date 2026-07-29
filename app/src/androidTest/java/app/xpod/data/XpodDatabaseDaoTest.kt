@@ -67,19 +67,47 @@ class XpodDatabaseDaoTest {
     database.episodes().upsertAll(listOf(first, second))
     database
         .playback()
-        .insertQueue(listOf(QueueItemEntity(first.id, 0), QueueItemEntity(second.id, 1)))
+        .insertQueue(
+            listOf(
+                QueueItemEntity(first.id, PlaybackMediaType.Podcast.name, 0),
+                QueueItemEntity(second.id, PlaybackMediaType.Podcast.name, 1),
+            )
+        )
     database
         .playback()
-        .save(PlaybackStateEntity(episodeId = first.id, positionMs = 12_345L, speed = 1.25f))
+        .save(
+            PlaybackStateEntity(
+                key = PlaybackMediaType.Podcast.name,
+                mediaId = first.id,
+                mediaType = PlaybackMediaType.Podcast.name,
+                positionMs = 12_345L,
+                speed = 1.25f,
+                updatedAtEpochMs = 10L,
+            )
+        )
+    database
+        .playback()
+        .save(
+            PlaybackStateEntity(
+                key = PlaybackMediaType.Music.name,
+                mediaId = null,
+                mediaType = PlaybackMediaType.Music.name,
+                updatedAtEpochMs = 20L,
+            )
+        )
 
     database.playback().removeQueueEpisodesForPodcast("podcast")
-    database.playback().clearStateForPodcast("podcast", updatedAtEpochMs = 99L)
+    database.playback().clearStateForPodcast("podcast")
 
-    assertEquals(listOf(second.id), database.playback().queue().map(QueueItemEntity::episodeId))
-    val state = database.playback().current()
-    assertNull(state?.episodeId)
+    assertEquals(
+        listOf(second.id),
+        database.playback().queue(PlaybackMediaType.Podcast.name).map(QueueItemEntity::mediaId),
+    )
+    val state = database.playback().state(PlaybackMediaType.Podcast.name)
+    assertNull(state?.mediaId)
     assertEquals(0L, state?.positionMs)
-    assertEquals(99L, state?.updatedAtEpochMs)
+    assertEquals(10L, state?.updatedAtEpochMs)
+    assertEquals(PlaybackMediaType.Music.name, database.playback().current()?.mediaType)
   }
 
   @Test
@@ -90,12 +118,81 @@ class XpodDatabaseDaoTest {
             Clock.fixed(Instant.ofEpochMilli(123L), ZoneOffset.UTC),
         )
 
-    repository.save("missing", positionMs = 456L, speed = 1.5f)
+    repository.save(
+        "missing",
+        PlaybackMediaType.Podcast,
+        positionMs = 456L,
+        speed = 1.5f,
+    )
 
     val state = database.playback().current()
-    assertNull(state?.episodeId)
+    assertNull(state?.mediaId)
     assertEquals(0L, state?.positionMs)
     assertEquals(123L, state?.updatedAtEpochMs)
+  }
+
+  @Test
+  fun playbackRepositoryKeepsSameMillisecondSavesInOrder() = runBlocking {
+    val repository =
+        PlaybackRepository(
+            database,
+            Clock.fixed(Instant.ofEpochMilli(123L), ZoneOffset.UTC),
+        )
+    val episode = episode()
+    val track = localTrack(id = "track", title = "Track", artist = "Artist")
+    database.podcasts().upsert(podcast())
+    database.episodes().upsertAll(listOf(episode))
+    database.localTracks().upsertAll(listOf(track))
+
+    repository.save(
+        episode.id,
+        PlaybackMediaType.Podcast,
+        positionMs = 1_000L,
+        speed = 1.25f,
+    )
+    repository.save(
+        track.id,
+        PlaybackMediaType.Music,
+        positionMs = 2_000L,
+        speed = 1f,
+    )
+
+    assertEquals(PlaybackMediaType.Music.name, repository.state()?.mediaType)
+    assertEquals(123L, repository.state(PlaybackMediaType.Podcast)?.updatedAtEpochMs)
+    assertEquals(124L, repository.state(PlaybackMediaType.Music)?.updatedAtEpochMs)
+  }
+
+  @Test
+  fun localTracksAreOrderedAndExposeStableIds() = runBlocking {
+    val second = localTrack(id = "second", title = "zebra", artist = "Beta")
+    val first = localTrack(id = "first", title = "Alpha", artist = "Gamma")
+    database.localTracks().upsertAll(listOf(second, first))
+
+    assertEquals(listOf(first, second), database.localTracks().all())
+    assertEquals(setOf("first", "second"), database.localTracks().ids().toSet())
+    assertEquals(second, database.localTracks().find("second"))
+
+    database.localTracks().clear()
+
+    assertEquals(emptyList<LocalTrackEntity>(), database.localTracks().all())
+  }
+
+  @Test
+  fun podcastEpisodesCanBeReadOneOrderedPageAtATime() = runBlocking {
+    database.podcasts().upsert(podcast())
+    val oldest = episode(id = "oldest", stableKey = "oldest").copy(publishedEpochMs = 1L)
+    val middle = episode(id = "middle", stableKey = "middle").copy(publishedEpochMs = 2L)
+    val newest = episode(id = "newest", stableKey = "newest").copy(publishedEpochMs = 3L)
+    database.episodes().upsertAll(listOf(oldest, newest, middle))
+
+    assertEquals(
+        listOf(newest, middle),
+        database.episodes().pageForPodcast("podcast", limit = 2, offset = 0),
+    )
+    assertEquals(
+        listOf(oldest),
+        database.episodes().pageForPodcast("podcast", limit = 2, offset = 2),
+    )
   }
 
   private fun podcast(
@@ -155,5 +252,21 @@ class XpodDatabaseDaoTest {
           artworkUrl = null,
           isRead = true,
           isFavorite = true,
+      )
+
+  private fun localTrack(
+      id: String,
+      title: String,
+      artist: String,
+  ) =
+      LocalTrackEntity(
+          id = id,
+          documentUri = "content://provider/document/$id",
+          treeUri = "content://provider/tree/music",
+          title = title,
+          artist = artist,
+          album = "Album",
+          durationMs = 1_000L,
+          modifiedEpochMs = 2L,
       )
 }

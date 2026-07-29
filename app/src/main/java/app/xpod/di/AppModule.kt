@@ -26,6 +26,7 @@ object AppModule {
           .addMigrations(
               XpodDatabaseMigrations.MIGRATION_1_2,
               XpodDatabaseMigrations.MIGRATION_2_3,
+              XpodDatabaseMigrations.MIGRATION_3_4,
           )
           .build()
 

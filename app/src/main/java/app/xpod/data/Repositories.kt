@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -53,12 +54,20 @@ enum class AppTab {
   Podcasts,
   Reader,
   Library,
+  Music,
   Memos,
   Settings,
 }
 
 internal val defaultTabOrder =
-    listOf(AppTab.Podcasts, AppTab.Reader, AppTab.Library, AppTab.Memos, AppTab.Settings)
+    listOf(
+        AppTab.Podcasts,
+        AppTab.Reader,
+        AppTab.Library,
+        AppTab.Music,
+        AppTab.Memos,
+        AppTab.Settings,
+    )
 
 internal fun parseTabOrder(value: String?): List<AppTab> {
   val saved =
@@ -178,7 +187,7 @@ constructor(
         val episodeIds = episodes.map(EpisodeEntity::id)
         database.withTransaction {
           database.playback().removeQueueEpisodesForPodcast(podcastId)
-          database.playback().clearStateForPodcast(podcastId, clock.millis())
+          database.playback().clearStateForPodcast(podcastId)
           database.podcasts().delete(podcastId)
         }
         episodeIds.toSet()
@@ -251,34 +260,69 @@ data class FeedRefreshResult(val shouldRetry: Boolean)
 class PlaybackRepository
 @Inject
 constructor(private val database: XpodDatabase, private val clock: Clock) {
-  suspend fun save(episodeId: String?, positionMs: Long, speed: Float) = database.withTransaction {
-    val availableEpisodeId = episodeId?.takeIf { database.episodes().find(it) != null }
+  suspend fun save(
+      mediaId: String?,
+      mediaType: PlaybackMediaType,
+      positionMs: Long,
+      speed: Float,
+  ) = database.withTransaction {
+    val availableMediaId = mediaId?.takeIf { id ->
+      when (mediaType) {
+        PlaybackMediaType.Podcast -> database.episodes().find(id) != null
+        PlaybackMediaType.Music -> database.localTracks().find(id) != null
+      }
+    }
+    val updatedAtEpochMs =
+        nextPlaybackTimestamp(
+            nowEpochMs = clock.millis(),
+            previousEpochMs = database.playback().latestUpdatedAt(),
+        )
     database
         .playback()
         .save(
             PlaybackStateEntity(
-                episodeId = availableEpisodeId,
-                positionMs = positionMs.takeIf { availableEpisodeId != null } ?: 0L,
-                speed = speed,
-                updatedAtEpochMs = clock.millis(),
+                key = mediaType.name,
+                mediaId = availableMediaId,
+                mediaType = mediaType.name,
+                positionMs = positionMs.takeIf { availableMediaId != null } ?: 0L,
+                speed = speed.takeIf { mediaType == PlaybackMediaType.Podcast } ?: 1f,
+                updatedAtEpochMs = updatedAtEpochMs,
             )
         )
   }
 
   suspend fun state(): PlaybackStateEntity? = database.playback().current()
 
+  suspend fun state(mediaType: PlaybackMediaType): PlaybackStateEntity? =
+      database.playback().state(mediaType.name)
+
   suspend fun markEpisodePlayed(episodeId: String) =
       database.episodes().markEpisodePlayed(episodeId, clock.millis())
 
-  suspend fun replaceQueue(episodeIds: List<String>) = database.withTransaction {
-    database.playback().clearQueue()
-    database
-        .playback()
-        .insertQueue(episodeIds.distinct().mapIndexed { index, id -> QueueItemEntity(id, index) })
-  }
+  suspend fun replaceQueue(mediaType: PlaybackMediaType, mediaIds: List<String>) =
+      database.withTransaction {
+        database.playback().clearQueue(mediaType.name)
+        database
+            .playback()
+            .insertQueue(
+                mediaIds.distinct().mapIndexed { index, id ->
+                  QueueItemEntity(id, mediaType.name, index)
+                }
+            )
+      }
 
-  suspend fun queue(): List<String> = database.playback().queue().map { it.episodeId }
+  suspend fun queue(mediaType: PlaybackMediaType): List<PlaybackReference> =
+      database.playback().queue(mediaType.name).map {
+        PlaybackReference(it.mediaId, PlaybackMediaType.fromStored(it.mediaType))
+      }
 }
+
+internal fun nextPlaybackTimestamp(nowEpochMs: Long, previousEpochMs: Long?): Long =
+    when {
+      previousEpochMs == null -> nowEpochMs
+      previousEpochMs == Long.MAX_VALUE -> Long.MAX_VALUE
+      else -> maxOf(nowEpochMs, previousEpochMs + 1L)
+    }
 
 @Singleton
 class SettingsRepository
@@ -290,6 +334,7 @@ constructor(@param:ApplicationContext private val context: Context) {
   private val wifiOnlyDownloads = booleanPreferencesKey("wifi_only_downloads")
   private val tabOrderKey = stringPreferencesKey("tab_order")
   private val disabledTabsKey = stringPreferencesKey("disabled_tabs")
+  private val localMusicTreeUriKey = stringPreferencesKey("local_music_tree_uri")
   val useDynamicColor: Flow<Boolean> = context.settingsStore.data.map { it[dynamicColor] ?: true }
   val defaultSpeed: Flow<Float> = context.settingsStore.data.map { it[speed] ?: 1f }
   val appTheme: Flow<ThemeMode> =
@@ -305,6 +350,8 @@ constructor(@param:ApplicationContext private val context: Context) {
       context.settingsStore.data.map { preferences ->
         defaultTabOrder.toSet() - parseDisabledTabs(preferences[disabledTabsKey])
       }
+  val localMusicTreeUri: Flow<String?> =
+      context.settingsStore.data.map { preferences -> preferences[localMusicTreeUriKey] }
 
   suspend fun setDynamicColor(enabled: Boolean) {
     context.settingsStore.edit { it[dynamicColor] = enabled }
@@ -321,6 +368,15 @@ constructor(@param:ApplicationContext private val context: Context) {
   suspend fun setWifiOnlyDownloads(enabled: Boolean) {
     context.settingsStore.edit { it[wifiOnlyDownloads] = enabled }
   }
+
+  suspend fun setLocalMusicTreeUri(value: String?) {
+    context.settingsStore.edit { preferences ->
+      if (value == null) preferences.remove(localMusicTreeUriKey)
+      else preferences[localMusicTreeUriKey] = value
+    }
+  }
+
+  suspend fun localMusicTreeUriValue(): String? = localMusicTreeUri.first()
 
   suspend fun moveTab(tab: AppTab, offset: Int) {
     context.settingsStore.edit { preferences ->

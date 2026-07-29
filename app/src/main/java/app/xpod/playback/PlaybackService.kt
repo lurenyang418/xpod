@@ -10,6 +10,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -18,9 +19,15 @@ import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.MediaSession
+import androidx.media3.session.SessionError
 import app.xpod.MainActivity
+import app.xpod.R
+import app.xpod.data.PlaybackItem
+import app.xpod.data.PlaybackMediaType
 import app.xpod.data.PlaybackRepository
+import app.xpod.data.PodcastEntity
 import app.xpod.data.XpodDatabase
+import app.xpod.data.asPlaybackItem
 import app.xpod.download.DownloadComponent
 import app.xpod.util.runCatchingCancellable
 import com.google.common.util.concurrent.Futures
@@ -47,16 +54,18 @@ class PlaybackService : MediaLibraryService() {
   private var periodicSaveJob: Job? = null
   private val persistence = ConflatedSerialExecutor(ioScope, ::persistSafely)
   private var acceptsPersistence = true
+  private var lastMediaType = PlaybackMediaType.Podcast
 
   override fun onCreate() {
     super.onCreate()
-    val cacheDataSource =
+    val cachedHttpDataSource =
         CacheDataSource.Factory()
             .setCache(DownloadComponent.cache(this))
             .setUpstreamDataSourceFactory(DefaultHttpDataSource.Factory())
+    val mediaDataSource = DefaultDataSource.Factory(this, cachedHttpDataSource)
     val player =
         ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(cacheDataSource))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(mediaDataSource))
             .build()
             .apply {
               setAudioAttributes(
@@ -76,6 +85,11 @@ class PlaybackService : MediaLibraryService() {
                               events.contains(Player.EVENT_PLAYBACK_PARAMETERS_CHANGED)
                       )
                           save(player)
+                      if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
+                        player.currentMediaItem?.mediaId?.let {
+                          updateAudioAttributes(player, PlaybackMediaType.fromMediaId(it))
+                        }
+                      }
                     }
                   }
               )
@@ -98,7 +112,10 @@ class PlaybackService : MediaLibraryService() {
                       params: LibraryParams?,
                   ): ListenableFuture<LibraryResult<MediaItem>> =
                       Futures.immediateFuture(
-                          LibraryResult.ofItem(browsableItem("root", "XPOD"), params)
+                          LibraryResult.ofItem(
+                              browsableItem(ROOT_ID, getString(R.string.app_name)),
+                              params,
+                          )
                       )
 
                   override fun onGetChildren(
@@ -110,16 +127,13 @@ class PlaybackService : MediaLibraryService() {
                       params: LibraryParams?,
                   ): ListenableFuture<
                       LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>
-                  > {
-                    val items =
-                        if (parentId == "root")
-                            listOf(
-                                browsableItem("subscriptions", "Subscriptions"),
-                                browsableItem("downloads", "Downloads"),
-                            )
-                        else emptyList()
-                    return Futures.immediateFuture(LibraryResult.ofItemList(items, params))
-                  }
+                  > = loadLibraryChildren(parentId, page, pageSize, params)
+
+                  override fun onAddMediaItems(
+                      mediaSession: MediaSession,
+                      controller: MediaSession.ControllerInfo,
+                      mediaItems: List<MediaItem>,
+                  ): ListenableFuture<List<MediaItem>> = resolveMediaItems(mediaItems)
 
                   override fun onPlaybackResumption(
                       session: MediaSession,
@@ -130,26 +144,49 @@ class PlaybackService : MediaLibraryService() {
                     ioScope.launch {
                       runCatchingCancellable {
                             val state = playbackRepository.state()
-                            val id = state?.episodeId ?: error("No previous episode")
-                            val episodes =
-                                playbackRepository.queue().mapNotNull {
-                                  database.episodes().find(it)
+                            val id = state?.mediaId ?: error("No previous item")
+                            val mediaType = PlaybackMediaType.fromStored(state.mediaType)
+                            val items =
+                                playbackRepository.queue(mediaType).mapNotNull { reference ->
+                                  when (reference.mediaType) {
+                                    PlaybackMediaType.Podcast ->
+                                        database
+                                            .episodes()
+                                            .find(reference.mediaId)
+                                            ?.asPlaybackItem()
+                                    PlaybackMediaType.Music ->
+                                        database
+                                            .localTracks()
+                                            .find(reference.mediaId)
+                                            ?.asPlaybackItem()
+                                  }
                                 }
-                            val queue = episodes.ifEmpty {
+                            val queue = items.ifEmpty {
                               listOf(
-                                  database.episodes().find(id)
-                                      ?: error("Previous episode is unavailable")
+                                  when (mediaType) {
+                                    PlaybackMediaType.Podcast ->
+                                        database.episodes().find(id)?.asPlaybackItem()
+                                    PlaybackMediaType.Music ->
+                                        database.localTracks().find(id)?.asPlaybackItem()
+                                  } ?: error("Previous item is unavailable")
                               )
                             }
                             val currentIndex = queue.indexOfFirst { it.id == id }.coerceAtLeast(0)
-                            MediaSession.MediaItemsWithStartPosition(
-                                queue.map { mediaItem(it.id, it.title, it.audioUrl) },
-                                currentIndex,
-                                state.positionMs,
-                            ) to state.speed
+                            Triple(
+                                MediaSession.MediaItemsWithStartPosition(
+                                    queue.map(::mediaItem),
+                                    currentIndex,
+                                    state.positionMs,
+                                ),
+                                state.speed
+                                    .takeIf { mediaType == PlaybackMediaType.Podcast }
+                                    .orDefault(),
+                                mediaType,
+                            )
                           }
-                          .onSuccess { (items, speed) ->
+                          .onSuccess { (items, speed, mediaType) ->
                             playerScope.launch {
+                              updateAudioAttributes(session.player, mediaType)
                               session.player.setPlaybackSpeed(speed)
                               future.set(items)
                             }
@@ -180,20 +217,29 @@ class PlaybackService : MediaLibraryService() {
 
   private fun snapshot(player: Player) =
       PlaybackSnapshot(
-          episodeId = player.currentMediaItem?.mediaId,
+          mediaId = player.currentMediaItem?.mediaId,
+          mediaType =
+              player.currentMediaItem?.mediaId?.let(PlaybackMediaType::fromMediaId)
+                  ?: lastMediaType,
           positionMs = player.currentPosition,
           durationMs = player.duration,
           speed = player.playbackParameters.speed,
       )
 
   private suspend fun persist(snapshot: PlaybackSnapshot) {
-    playbackRepository.save(snapshot.episodeId, snapshot.positionMs, snapshot.speed)
+    playbackRepository.save(
+        snapshot.mediaId,
+        snapshot.mediaType,
+        snapshot.positionMs,
+        snapshot.speed,
+    )
     if (
-        snapshot.episodeId != null &&
+        snapshot.mediaType == PlaybackMediaType.Podcast &&
+            snapshot.mediaId != null &&
             snapshot.durationMs > 0 &&
             snapshot.positionMs.toDouble() / snapshot.durationMs >= 0.9
     ) {
-      playbackRepository.markEpisodePlayed(snapshot.episodeId)
+      playbackRepository.markEpisodePlayed(snapshot.mediaId)
     }
   }
 
@@ -201,6 +247,101 @@ class PlaybackService : MediaLibraryService() {
     runCatchingCancellable { persist(snapshot) }
         .onFailure { Log.w("XPOD", "Unable to persist playback state", it) }
   }
+
+  private fun updateAudioAttributes(player: Player, mediaType: PlaybackMediaType) {
+    if (lastMediaType == mediaType) return
+    player.setAudioAttributes(audioAttributes(mediaType), true)
+    lastMediaType = mediaType
+  }
+
+  private fun loadLibraryChildren(
+      parentId: String,
+      page: Int,
+      pageSize: Int,
+      params: LibraryParams?,
+  ): ListenableFuture<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>> {
+    val future =
+        SettableFuture.create<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>>()
+    ioScope.launch {
+      runCatchingCancellable {
+            if (parentId.startsWith(PODCAST_ID_PREFIX)) {
+              val offset = pageOffset(page, pageSize)
+              if (offset == null) {
+                emptyList()
+              } else {
+                database
+                    .episodes()
+                    .pageForPodcast(
+                        parentId.removePrefix(PODCAST_ID_PREFIX),
+                        limit = pageSize,
+                        offset = offset,
+                    )
+                    .map { mediaItem(it.asPlaybackItem()) }
+              }
+            } else {
+              val items =
+                  when (parentId) {
+                    ROOT_ID ->
+                        listOf(
+                            browsableItem(SUBSCRIPTIONS_ID, getString(R.string.subscriptions)),
+                            browsableItem(DOWNLOADS_ID, getString(R.string.downloads)),
+                            browsableItem(MUSIC_ID, getString(R.string.local_music)),
+                        )
+                    SUBSCRIPTIONS_ID -> database.podcasts().all().map(::podcastItem)
+                    DOWNLOADS_ID -> downloadedEpisodes()
+                    MUSIC_ID -> database.localTracks().all().map { mediaItem(it.asPlaybackItem()) }
+                    else -> emptyList()
+                  }
+              pageItems(items, page, pageSize)
+            }
+          }
+          .onSuccess { items -> future.set(LibraryResult.ofItemList(items, params)) }
+          .onFailure { error ->
+            Log.w("XPOD", "Unable to load media library children for $parentId", error)
+            future.set(LibraryResult.ofError(SessionError.ERROR_IO, params))
+          }
+    }
+    return future
+  }
+
+  private fun resolveMediaItems(
+      requestedItems: List<MediaItem>
+  ): ListenableFuture<List<MediaItem>> {
+    val future = SettableFuture.create<List<MediaItem>>()
+    ioScope.launch {
+      runCatchingCancellable {
+            requestedItems.mapNotNull { requested ->
+              if (requested.localConfiguration != null) {
+                requested
+              } else {
+                when (PlaybackMediaType.fromMediaId(requested.mediaId)) {
+                  PlaybackMediaType.Podcast ->
+                      database.episodes().find(requested.mediaId)?.asPlaybackItem()
+                  PlaybackMediaType.Music ->
+                      database.localTracks().find(requested.mediaId)?.asPlaybackItem()
+                }?.let(::mediaItem)
+              }
+            }
+          }
+          .onSuccess(future::set)
+          .onFailure(future::setException)
+    }
+    return future
+  }
+
+  private suspend fun downloadedEpisodes(): List<MediaItem> =
+      DownloadComponent.manager(this)
+          .downloadIndex
+          .getDownloads(androidx.media3.exoplayer.offline.Download.STATE_COMPLETED)
+          .use { cursor ->
+            buildList {
+              while (cursor.moveToNext()) {
+                database.episodes().find(cursor.download.request.id)?.let { episode ->
+                  add(mediaItem(episode.asPlaybackItem()))
+                }
+              }
+            }
+          }
 
   override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? =
       session
@@ -231,21 +372,78 @@ class PlaybackService : MediaLibraryService() {
     private fun browsableItem(id: String, title: String) =
         MediaItem.Builder()
             .setMediaId(id)
-            .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setIsBrowsable(true).build())
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(title)
+                    .setIsBrowsable(true)
+                    .setIsPlayable(false)
+                    .build()
+            )
             .build()
 
-    private fun mediaItem(id: String, title: String, url: String) =
+    private fun podcastItem(podcast: PodcastEntity) =
         MediaItem.Builder()
-            .setMediaId(id)
-            .setUri(url)
-            .setMediaMetadata(MediaMetadata.Builder().setTitle(title).setIsPlayable(true).build())
+            .setMediaId(PODCAST_ID_PREFIX + podcast.id)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(podcast.title)
+                    .setArtist(podcast.author)
+                    .setArtworkUri(podcast.artworkUrl?.let(android.net.Uri::parse))
+                    .setIsBrowsable(true)
+                    .setIsPlayable(false)
+                    .build()
+            )
             .build()
+
+    private fun mediaItem(item: PlaybackItem) =
+        MediaItem.Builder()
+            .setMediaId(item.id)
+            .setUri(item.uri)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(item.title)
+                    .setArtist(item.subtitle)
+                    .setArtworkUri(item.artworkUri?.let(android.net.Uri::parse))
+                    .setIsBrowsable(false)
+                    .setIsPlayable(true)
+                    .build()
+            )
+            .build()
+
+    private fun audioAttributes(mediaType: PlaybackMediaType) =
+        AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(
+                if (mediaType == PlaybackMediaType.Music) C.AUDIO_CONTENT_TYPE_MUSIC
+                else C.AUDIO_CONTENT_TYPE_SPEECH
+            )
+            .build()
+
+    private const val ROOT_ID = "root"
+    private const val SUBSCRIPTIONS_ID = "subscriptions"
+    private const val DOWNLOADS_ID = "downloads"
+    private const val MUSIC_ID = "music"
+    private const val PODCAST_ID_PREFIX = "podcast:"
   }
 
   private data class PlaybackSnapshot(
-      val episodeId: String?,
+      val mediaId: String?,
+      val mediaType: PlaybackMediaType,
       val positionMs: Long,
       val durationMs: Long,
       val speed: Float,
   )
 }
+
+internal fun <T> pageItems(items: List<T>, page: Int, pageSize: Int): List<T> {
+  val from = pageOffset(page, pageSize) ?: return emptyList()
+  if (from >= items.size) return emptyList()
+  return items.subList(from, minOf(from.toLong() + pageSize, items.size.toLong()).toInt())
+}
+
+internal fun pageOffset(page: Int, pageSize: Int): Int? {
+  if (page < 0 || pageSize <= 0) return null
+  return (page.toLong() * pageSize).takeIf { it <= Int.MAX_VALUE }?.toInt()
+}
+
+private fun Float?.orDefault(): Float = this ?: 1f
