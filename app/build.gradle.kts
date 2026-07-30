@@ -23,8 +23,8 @@ android {
     applicationId = "tech.lury.xpod"
     minSdk = 33
     targetSdk = 36
-    versionCode = 10
-    versionName = "0.9.0"
+    versionCode = 11
+    versionName = "0.9.1"
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
@@ -48,7 +48,11 @@ android {
         } else {
           null
         }
-    debug { stableSigningConfig?.let { signingConfig = it } }
+    debug {
+      applicationIdSuffix = ".debug"
+      versionNameSuffix = "-debug"
+      stableSigningConfig?.let { signingConfig = it }
+    }
     release {
       isMinifyEnabled = true
       isShrinkResources = true
