@@ -404,6 +404,7 @@ class PlaybackService : MediaLibraryService() {
                     .setTitle(item.title)
                     .setArtist(item.subtitle)
                     .setArtworkUri(item.artworkUri?.let(android.net.Uri::parse))
+                    .setDurationMs(item.durationMs)
                     .setIsBrowsable(false)
                     .setIsPlayable(true)
                     .build()

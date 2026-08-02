@@ -79,6 +79,7 @@ import app.xpod.data.ArticleFeedEntity
 import app.xpod.data.CloudMemo
 import app.xpod.data.CloudMemoVisibility
 import app.xpod.data.EpisodeEntity
+import app.xpod.data.LocalTrackEntity
 import app.xpod.data.PlaybackMediaType
 import app.xpod.data.PodcastEntity
 import app.xpod.data.ThemeMode
@@ -267,6 +268,30 @@ private fun XpodHome(
       viewModel.download(episode)
     }
   }
+  val playEpisode: (EpisodeEntity) -> Unit = { episode ->
+    requestNotificationPermission()
+    viewModel.play(episode)
+  }
+  val playMusicTrack: (LocalTrackEntity) -> Unit = { track ->
+    requestNotificationPermission()
+    viewModel.playMusic(music.visibleTracks, track.id)
+  }
+  val playQueueItem: (String) -> Unit = { mediaId ->
+    requestNotificationPermission()
+    viewModel.playQueueItem(mediaId)
+  }
+  val togglePlayback: () -> Unit = {
+    requestNotificationPermission()
+    viewModel.togglePlayback()
+  }
+  val skipToPrevious: () -> Unit = {
+    requestNotificationPermission()
+    viewModel.skipToPrevious()
+  }
+  val skipToNext: () -> Unit = {
+    requestNotificationPermission()
+    viewModel.skipToNext()
+  }
 
   LaunchedEffect(state.status) {
     state.status?.let {
@@ -351,12 +376,12 @@ private fun XpodHome(
         FullPlayerScreen(
             nowPlaying = playing,
             podcast = state.podcasts.firstOrNull { it.id == playing.item.sourceId },
-            onToggle = viewModel::togglePlayback,
+            onToggle = togglePlayback,
             onSeek = viewModel::seekTo,
             onSkipBack = { viewModel.seekBy(-10_000L) },
             onSkipForward = { viewModel.seekBy(30_000L) },
-            onPrevious = viewModel::skipToPrevious,
-            onNext = viewModel::skipToNext,
+            onPrevious = skipToPrevious,
+            onNext = skipToNext,
             onShowSpeedPicker = { showSpeedPicker = true },
             onOpenPodcast = {
               playing.item.sourceId?.let { podcastId ->
@@ -372,8 +397,8 @@ private fun XpodHome(
         EpisodeDetailScreen(
             episode = episode,
             isPlaying = nowPlaying?.item?.id == episode.id && nowPlaying?.isPlaying == true,
-            onPlay = { viewModel.play(episode) },
-            onTogglePlayback = viewModel::togglePlayback,
+            onPlay = { playEpisode(episode) },
+            onTogglePlayback = togglePlayback,
             onFavorite = { viewModel.toggleFavorite(episode.id) },
             onPlayed = { viewModel.markPlayed(episode.id, !episode.isPlayed) },
             downloadState = downloadStates[episode.id],
@@ -418,14 +443,14 @@ private fun XpodHome(
               wide = wide,
               select = viewModel::selectPodcast,
               refresh = viewModel::refresh,
-              play = viewModel::play,
+              play = playEpisode,
               download = handleDownload,
               favorite = viewModel::toggleFavorite,
               played = viewModel::markPlayed,
               nowPlaying = nowPlaying,
               downloadStates = downloadStates,
               openEpisode = { selectedEpisodeId = it.id },
-              togglePlayback = viewModel::togglePlayback,
+              togglePlayback = togglePlayback,
               addToQueue = viewModel::addToQueue,
               showQueue = { showQueue = true },
               delete = { podcastToDelete = it },
@@ -436,14 +461,14 @@ private fun XpodHome(
       destination == AppTab.Library ->
           LibraryScreen(
               state = state,
-              play = viewModel::play,
+              play = playEpisode,
               favorite = viewModel::toggleFavorite,
               download = handleDownload,
               played = viewModel::markPlayed,
               nowPlaying = nowPlaying,
               downloadStates = downloadStates,
               openEpisode = { selectedEpisodeId = it.id },
-              togglePlayback = viewModel::togglePlayback,
+              togglePlayback = togglePlayback,
               addToQueue = viewModel::addToQueue,
           )
       destination == AppTab.Reader ->
@@ -468,8 +493,8 @@ private fun XpodHome(
               refresh = viewModel::refreshLocalMusic,
               cancelScan = viewModel::cancelLocalMusicScan,
               setQuery = viewModel::setMusicQuery,
-              play = { track -> viewModel.playMusic(music.visibleTracks, track.id) },
-              togglePlayback = viewModel::togglePlayback,
+              play = playMusicTrack,
+              togglePlayback = togglePlayback,
               playNext = viewModel::playMusicNext,
               addToQueue = viewModel::addMusicToQueue,
           )
@@ -534,9 +559,9 @@ private fun XpodHome(
               selectedEpisodeId = null
               selectedArticleId = null
             },
-            onToggle = viewModel::togglePlayback,
-            onPrevious = viewModel::skipToPrevious,
-            onNext = viewModel::skipToNext,
+            onToggle = togglePlayback,
+            onPrevious = skipToPrevious,
+            onNext = skipToNext,
             onOpenPlayer = { fullPlayer = true },
             onShowSpeedPicker = { showSpeedPicker = true },
         )
@@ -595,8 +620,8 @@ private fun XpodHome(
           }
           showQueue = false
         },
-        onPlay = viewModel::playQueueItem,
-        onTogglePlayback = viewModel::togglePlayback,
+        onPlay = playQueueItem,
+        onTogglePlayback = togglePlayback,
         onMove = viewModel::moveQueueItem,
         onRemove = viewModel::removeFromQueue,
     )

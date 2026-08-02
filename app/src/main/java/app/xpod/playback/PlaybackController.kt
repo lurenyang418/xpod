@@ -133,6 +133,13 @@ constructor(
         queueRestoreCompleted.complete(Unit)
       }
     }
+    scope.launch {
+      queueRestoreCompleted.await()
+      runCatchingCancellable {
+            playbackMutationMutex.withLock { synchronizeActivePlayback(controller()) }
+          }
+          .onFailure { Log.w("XPOD", "Unable to synchronize active playback", it) }
+    }
   }
 
   private suspend fun controller(): MediaController =
@@ -505,8 +512,17 @@ constructor(
       throw error
     }
     val item = items[startIndex.coerceIn(items.indices)]
-    _nowPlaying.value = NowPlaying(item, status = player.playbackStatus(), speed = speed)
+    _nowPlaying.value = nowPlayingSnapshot(player, item)
     _queue.value = PlaybackQueue(items, item.id, mediaType)
+    startProgressUpdates()
+  }
+
+  private fun synchronizeActivePlayback(player: MediaController) {
+    val mediaId = player.currentMediaItem?.mediaId ?: return
+    val queue = _queue.value
+    val item = queue.items.firstOrNull { it.id == mediaId } ?: return
+    _queue.value = queue.copy(currentMediaId = mediaId, mediaType = item.mediaType)
+    _nowPlaying.value = nowPlayingSnapshot(player, item)
     startProgressUpdates()
   }
 
@@ -531,6 +547,7 @@ constructor(
     val items = queue.items.applyTransition(appliedAction, itemIndex)
     _nowPlaying.value = nowPlayingSnapshot(player, item)
     _queue.value = PlaybackQueue(items, item.id, item.mediaType)
+    startProgressUpdates()
     if (appliedAction != QueueTransitionAction.Keep) persistQueueSafely(item.mediaType, items)
   }
 
@@ -598,7 +615,7 @@ constructor(
           status = player.playbackStatus(),
           speed = player.playbackParameters.speed,
           positionMs = player.currentPosition.coerceAtLeast(0L),
-          durationMs = player.duration.takeIf { it > 0L } ?: 0L,
+          durationMs = playbackDuration(player.duration, item.durationMs),
       )
 
   private suspend fun persistQueueSafely(
@@ -636,11 +653,11 @@ constructor(
   }
 
   private fun updateProgress(player: MediaController) {
-    val duration = player.duration.takeIf { it > 0L } ?: 0L
+    val current = _nowPlaying.value ?: return
     _nowPlaying.value =
-        _nowPlaying.value?.copy(
+        current.copy(
             positionMs = player.currentPosition.coerceAtLeast(0L),
-            durationMs = duration,
+            durationMs = playbackDuration(player.duration, current.item.durationMs),
         )
   }
 
@@ -708,7 +725,11 @@ constructor(
                   .setTitle(item.title)
                   .setArtist(item.subtitle)
                   .setArtworkUri(item.artworkUri?.let(android.net.Uri::parse))
+                  .setDurationMs(item.durationMs)
                   .build()
           )
           .build()
 }
+
+internal fun playbackDuration(playerDurationMs: Long, itemDurationMs: Long?): Long =
+    playerDurationMs.takeIf { it > 0L } ?: itemDurationMs?.takeIf { it > 0L } ?: 0L

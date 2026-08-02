@@ -105,6 +105,7 @@ data class PlaybackItem(
     val uri: String,
     val artworkUri: String? = null,
     val sourceId: String? = null,
+    val durationMs: Long? = null,
 )
 
 fun EpisodeEntity.asPlaybackItem(): PlaybackItem =
@@ -116,6 +117,7 @@ fun EpisodeEntity.asPlaybackItem(): PlaybackItem =
         uri = audioUrl,
         artworkUri = artworkUrl,
         sourceId = podcastId,
+        durationMs = durationMs?.takeIf { it > 0L },
     )
 
 fun LocalTrackEntity.asPlaybackItem(): PlaybackItem =
@@ -125,6 +127,7 @@ fun LocalTrackEntity.asPlaybackItem(): PlaybackItem =
         title = title,
         subtitle = artist.ifBlank { album },
         uri = documentUri,
+        durationMs = durationMs.takeIf { it > 0L },
     )
 
 @Entity
