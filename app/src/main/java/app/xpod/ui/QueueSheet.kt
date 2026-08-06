@@ -19,11 +19,15 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -39,7 +43,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.xpod.R
+import app.xpod.data.MusicPlaybackSettings
+import app.xpod.data.MusicRepeatMode
 import app.xpod.data.PlaybackItem
+import app.xpod.data.PlaybackMediaType
 import app.xpod.playback.PlaybackQueue
 import app.xpod.playback.PlaybackStatus
 
@@ -48,11 +55,14 @@ import app.xpod.playback.PlaybackStatus
 internal fun QueueSheet(
     queue: PlaybackQueue,
     playbackStatus: PlaybackStatus?,
+    musicPlaybackSettings: MusicPlaybackSettings,
     onDismiss: () -> Unit,
     onClear: () -> Unit,
     onOpenItem: (PlaybackItem) -> Unit,
     onPlay: (String) -> Unit,
     onTogglePlayback: () -> Unit,
+    onToggleShuffle: () -> Unit,
+    onCycleRepeatMode: () -> Unit,
     onMove: (Int, Int) -> Unit,
     onRemove: (String) -> Unit,
 ) =
@@ -67,6 +77,41 @@ internal fun QueueSheet(
               Modifier.weight(1f),
               style = MaterialTheme.typography.titleLarge,
           )
+          if (queue.mediaType == PlaybackMediaType.Music) {
+            IconToggleButton(
+                checked = musicPlaybackSettings.shuffleEnabled,
+                onCheckedChange = { onToggleShuffle() },
+            ) {
+              Icon(
+                  Icons.Filled.Shuffle,
+                  stringResource(
+                      if (musicPlaybackSettings.shuffleEnabled) R.string.shuffle_on
+                      else R.string.shuffle_off
+                  ),
+                  tint =
+                      if (musicPlaybackSettings.shuffleEnabled) MaterialTheme.colorScheme.primary
+                      else MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+            IconButton(onClick = onCycleRepeatMode) {
+              val repeatMode = musicPlaybackSettings.repeatMode
+              Icon(
+                  if (repeatMode == MusicRepeatMode.One) Icons.Filled.RepeatOne
+                  else Icons.Filled.Repeat,
+                  stringResource(
+                      when (repeatMode) {
+                        MusicRepeatMode.Off -> R.string.repeat_off
+                        MusicRepeatMode.All -> R.string.repeat_all
+                        MusicRepeatMode.One -> R.string.repeat_one
+                      }
+                  ),
+                  tint =
+                      if (repeatMode == MusicRepeatMode.Off)
+                          MaterialTheme.colorScheme.onSurfaceVariant
+                      else MaterialTheme.colorScheme.primary,
+              )
+            }
+          }
           IconButton(onClick = onClear, enabled = queue.items.isNotEmpty()) {
             Icon(Icons.Filled.Delete, stringResource(R.string.clear_queue))
           }

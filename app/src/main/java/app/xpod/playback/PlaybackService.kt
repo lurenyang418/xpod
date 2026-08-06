@@ -22,10 +22,12 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionError
 import app.xpod.MainActivity
 import app.xpod.R
+import app.xpod.data.MusicPlaybackSettings
 import app.xpod.data.PlaybackItem
 import app.xpod.data.PlaybackMediaType
 import app.xpod.data.PlaybackRepository
 import app.xpod.data.PodcastEntity
+import app.xpod.data.SettingsRepository
 import app.xpod.data.XpodDatabase
 import app.xpod.data.asPlaybackItem
 import app.xpod.download.DownloadComponent
@@ -35,6 +37,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -47,6 +50,7 @@ import kotlinx.coroutines.launch
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class PlaybackService : MediaLibraryService() {
   @Inject lateinit var playbackRepository: PlaybackRepository
+  @Inject lateinit var settings: SettingsRepository
   @Inject lateinit var database: XpodDatabase
   private val playerScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
   private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -55,6 +59,8 @@ class PlaybackService : MediaLibraryService() {
   private val persistence = ConflatedSerialExecutor(ioScope, ::persistSafely)
   private var acceptsPersistence = true
   private var lastMediaType = PlaybackMediaType.Podcast
+  private var musicPlaybackSettings = MusicPlaybackSettings()
+  private val musicPlaybackSettingsReady = CompletableDeferred<MusicPlaybackSettings>()
 
   override fun onCreate() {
     super.onCreate()
@@ -87,7 +93,21 @@ class PlaybackService : MediaLibraryService() {
                           save(player)
                       if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
                         player.currentMediaItem?.mediaId?.let {
-                          updateAudioAttributes(player, PlaybackMediaType.fromMediaId(it))
+                          updatePlaybackBehavior(player, PlaybackMediaType.fromMediaId(it))
+                        }
+                      }
+                      if (
+                          events.contains(Player.EVENT_REPEAT_MODE_CHANGED) ||
+                              events.contains(Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED)
+                      ) {
+                        val mediaType =
+                            player.currentMediaItem?.mediaId?.let(PlaybackMediaType::fromMediaId)
+                        if (mediaType == PlaybackMediaType.Music) {
+                          musicPlaybackSettings =
+                              MusicPlaybackSettings(
+                                  shuffleEnabled = player.shuffleModeEnabled,
+                                  repeatMode = player.repeatMode.toMusicRepeatMode(),
+                              )
                         }
                       }
                     }
@@ -172,23 +192,31 @@ class PlaybackService : MediaLibraryService() {
                               )
                             }
                             val currentIndex = queue.indexOfFirst { it.id == id }.coerceAtLeast(0)
-                            Triple(
-                                MediaSession.MediaItemsWithStartPosition(
-                                    queue.map(::mediaItem),
-                                    currentIndex,
-                                    state.positionMs,
-                                ),
-                                state.speed
-                                    .takeIf { mediaType == PlaybackMediaType.Podcast }
-                                    .orDefault(),
-                                mediaType,
+                            PlaybackResumption(
+                                items =
+                                    MediaSession.MediaItemsWithStartPosition(
+                                        queue.map(::mediaItem),
+                                        currentIndex,
+                                        state.positionMs,
+                                    ),
+                                speed =
+                                    state.speed
+                                        .takeIf { mediaType == PlaybackMediaType.Podcast }
+                                        .orDefault(),
+                                mediaType = mediaType,
+                                musicSettings = musicPlaybackSettingsReady.await(),
                             )
                           }
-                          .onSuccess { (items, speed, mediaType) ->
+                          .onSuccess { resumption ->
                             playerScope.launch {
-                              updateAudioAttributes(session.player, mediaType)
-                              session.player.setPlaybackSpeed(speed)
-                              future.set(items)
+                              musicPlaybackSettings = resumption.musicSettings
+                              updatePlaybackBehavior(
+                                  session.player,
+                                  resumption.mediaType,
+                                  forcePlaybackSettings = true,
+                              )
+                              session.player.setPlaybackSpeed(resumption.speed)
+                              future.set(resumption.items)
                             }
                           }
                           .onFailure(future::setException)
@@ -199,6 +227,21 @@ class PlaybackService : MediaLibraryService() {
             )
             .setSessionActivity(sessionActivity)
             .build()
+    ioScope.launch {
+      val playbackSettings =
+          runCatchingCancellable { settings.musicPlaybackSettingsValue() }
+              .getOrElse {
+                Log.w("XPOD", "Unable to restore music playback settings", it)
+                MusicPlaybackSettings()
+              }
+      musicPlaybackSettingsReady.complete(playbackSettings)
+      playerScope.launch {
+        musicPlaybackSettings = playbackSettings
+        player.currentMediaItem?.mediaId?.let(PlaybackMediaType::fromMediaId)?.let { mediaType ->
+          updatePlaybackBehavior(player, mediaType, forcePlaybackSettings = true)
+        }
+      }
+    }
     periodicSaveJob = playerScope.launch {
       while (true) {
         delay(2_000)
@@ -248,10 +291,19 @@ class PlaybackService : MediaLibraryService() {
         .onFailure { Log.w("XPOD", "Unable to persist playback state", it) }
   }
 
-  private fun updateAudioAttributes(player: Player, mediaType: PlaybackMediaType) {
-    if (lastMediaType == mediaType) return
-    player.setAudioAttributes(audioAttributes(mediaType), true)
-    lastMediaType = mediaType
+  private fun updatePlaybackBehavior(
+      player: Player,
+      mediaType: PlaybackMediaType,
+      forcePlaybackSettings: Boolean = false,
+  ) {
+    val mediaTypeChanged = lastMediaType != mediaType
+    if (mediaTypeChanged) {
+      player.setAudioAttributes(audioAttributes(mediaType), true)
+      lastMediaType = mediaType
+    }
+    if (mediaTypeChanged || forcePlaybackSettings) {
+      applyPlaybackSettings(player, mediaType, musicPlaybackSettings)
+    }
   }
 
   private fun loadLibraryChildren(
@@ -433,6 +485,13 @@ class PlaybackService : MediaLibraryService() {
       val positionMs: Long,
       val durationMs: Long,
       val speed: Float,
+  )
+
+  private data class PlaybackResumption(
+      val items: MediaSession.MediaItemsWithStartPosition,
+      val speed: Float,
+      val mediaType: PlaybackMediaType,
+      val musicSettings: MusicPlaybackSettings,
   )
 }
 

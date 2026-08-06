@@ -141,6 +141,7 @@ private fun XpodHome(
   val enabledTabs by viewModel.enabledTabs.collectAsStateWithLifecycle()
   val visibleTabs = tabOrder.filter(enabledTabs::contains)
   val queue by viewModel.queue.collectAsStateWithLifecycle()
+  val musicPlaybackSettings by viewModel.musicPlaybackSettings.collectAsStateWithLifecycle()
   val musicFolderPicker =
       rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri?.let(viewModel::selectMusicFolder)
@@ -610,6 +611,7 @@ private fun XpodHome(
     QueueSheet(
         queue = queue,
         playbackStatus = nowPlaying?.takeIf { it.item.id == queue.currentMediaId }?.status,
+        musicPlaybackSettings = musicPlaybackSettings,
         onDismiss = { showQueue = false },
         onClear = { confirmClearQueue = true },
         onOpenItem = {
@@ -622,6 +624,8 @@ private fun XpodHome(
         },
         onPlay = playQueueItem,
         onTogglePlayback = togglePlayback,
+        onToggleShuffle = viewModel::toggleMusicShuffle,
+        onCycleRepeatMode = viewModel::cycleMusicRepeatMode,
         onMove = viewModel::moveQueueItem,
         onRemove = viewModel::removeFromQueue,
     )

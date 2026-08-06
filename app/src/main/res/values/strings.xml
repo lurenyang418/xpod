@@ -121,6 +121,11 @@
     <string name="subscription_removed">Subscription removed</string>
     <string name="could_not_remove_subscription">Could not remove subscription</string>
     <string name="queue">Queue</string>
+    <string name="shuffle_off">Shuffle off</string>
+    <string name="shuffle_on">Shuffle on</string>
+    <string name="repeat_off">Repeat off</string>
+    <string name="repeat_all">Repeat all</string>
+    <string name="repeat_one">Repeat one</string>
     <string name="playback_paused">Paused</string>
     <string name="playback_buffering">Buffering</string>
     <string name="playback_finished">Finished</string>
@@ -143,6 +148,7 @@
     <string name="could_not_control_playback">Could not control playback</string>
     <string name="could_not_seek_playback">Could not seek playback</string>
     <string name="could_not_change_speed">Could not change speed</string>
+    <string name="could_not_change_playback_mode">Could not change playback mode</string>
     <plurals name="imported_subscriptions">
         <item quantity="one">Imported %1$d subscription</item>
         <item quantity="other">Imported %1$d subscriptions</item>

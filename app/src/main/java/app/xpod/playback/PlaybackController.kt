@@ -11,6 +11,8 @@ import androidx.media3.session.SessionToken
 import app.xpod.data.EpisodeEntity
 import app.xpod.data.LocalMusicRepository
 import app.xpod.data.LocalTrackEntity
+import app.xpod.data.MusicPlaybackSettings
+import app.xpod.data.MusicRepeatMode
 import app.xpod.data.PlaybackItem
 import app.xpod.data.PlaybackMediaType
 import app.xpod.data.PlaybackReference
@@ -32,6 +34,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -85,11 +89,27 @@ constructor(
   val nowPlaying: StateFlow<NowPlaying?> = _nowPlaying.asStateFlow()
   private val _queue = MutableStateFlow(PlaybackQueue())
   val queue: StateFlow<PlaybackQueue> = _queue.asStateFlow()
+  private val _musicPlaybackSettings = MutableStateFlow(MusicPlaybackSettings())
+  val musicPlaybackSettings: StateFlow<MusicPlaybackSettings> = _musicPlaybackSettings.asStateFlow()
   private val playbackMutationMutex = Mutex()
   private var restoredQueueApplied = false
   private val queueRestoreCompleted = CompletableDeferred<Unit>()
+  private val musicPlaybackSettingsReady = CompletableDeferred<Unit>()
 
   init {
+    scope.launch {
+      queueRestoreCompleted.await()
+      try {
+        settings.musicPlaybackSettings
+            .catch { Log.w("XPOD", "Unable to observe music playback settings", it) }
+            .collect { playbackSettings ->
+              updateMusicPlaybackSettings(playbackSettings)
+              musicPlaybackSettingsReady.complete(Unit)
+            }
+      } finally {
+        musicPlaybackSettingsReady.complete(Unit)
+      }
+    }
     scope.launch(Dispatchers.IO) {
       try {
         runCatchingCancellable {
@@ -171,6 +191,11 @@ constructor(
                           return@onSuccess
                         }
                         controller = created
+                        applyPlaybackSettings(
+                            created,
+                            _queue.value.mediaType,
+                            _musicPlaybackSettings.value,
+                        )
                         created.addListener(
                             object : Player.Listener {
                               override fun onEvents(player: Player, events: Player.Events) {
@@ -226,23 +251,28 @@ constructor(
     startQueuePlayback(listOf(episode.asPlaybackItem()), 0)
   }
 
-  suspend fun playMusic(tracks: List<LocalTrackEntity>, startTrackId: String) =
-      playbackMutationMutex.withLock {
-        restoredQueueApplied = true
-        val items = tracks.map(LocalTrackEntity::asPlaybackItem)
-        val startIndex = items.indexOfFirst { it.id == startTrackId }.coerceAtLeast(0)
-        startQueuePlayback(items, startIndex)
-      }
+  suspend fun playMusic(tracks: List<LocalTrackEntity>, startTrackId: String) {
+    musicPlaybackSettingsReady.await()
+    playbackMutationMutex.withLock {
+      restoredQueueApplied = true
+      val items = tracks.map(LocalTrackEntity::asPlaybackItem)
+      val startIndex = items.indexOfFirst { it.id == startTrackId }.coerceAtLeast(0)
+      startQueuePlayback(items, startIndex, _musicPlaybackSettings.value)
+    }
+  }
 
-  suspend fun playQueueItem(mediaId: String) = playbackMutationMutex.withLock {
-    restoredQueueApplied = true
-    val queue = _queue.value
-    val index = queue.items.indexOfFirst { it.id == mediaId }
-    if (index < 0) return@withLock
-    if (queue.mediaType == PlaybackMediaType.Podcast) {
-      startQueuePlayback(queue.items.moveItemToFront(index), 0)
-    } else {
-      startQueuePlayback(queue.items, index)
+  suspend fun playQueueItem(mediaId: String) {
+    musicPlaybackSettingsReady.await()
+    playbackMutationMutex.withLock {
+      restoredQueueApplied = true
+      val queue = _queue.value
+      val index = queue.items.indexOfFirst { it.id == mediaId }
+      if (index < 0) return@withLock
+      if (queue.mediaType == PlaybackMediaType.Podcast) {
+        startQueuePlayback(queue.items.moveItemToFront(index), 0)
+      } else {
+        startQueuePlayback(queue.items, index, _musicPlaybackSettings.value)
+      }
     }
   }
 
@@ -472,6 +502,24 @@ constructor(
     _nowPlaying.value = _nowPlaying.value?.copy(speed = speed)
   }
 
+  suspend fun toggleMusicShuffle() {
+    musicPlaybackSettingsReady.await()
+    playbackMutationMutex.withLock {
+      val shuffleEnabled = settings.toggleMusicShuffle()
+      updateMusicPlaybackSettings(
+          _musicPlaybackSettings.value.copy(shuffleEnabled = shuffleEnabled)
+      )
+    }
+  }
+
+  suspend fun cycleMusicRepeatMode() {
+    musicPlaybackSettingsReady.await()
+    playbackMutationMutex.withLock {
+      val repeatMode = settings.cycleMusicRepeatMode()
+      updateMusicPlaybackSettings(_musicPlaybackSettings.value.copy(repeatMode = repeatMode))
+    }
+  }
+
   suspend fun skipToNext() = playbackMutationMutex.withLock {
     controller().let { player ->
       if (player.hasNextMediaItem()) {
@@ -492,7 +540,11 @@ constructor(
     }
   }
 
-  private suspend fun startQueuePlayback(items: List<PlaybackItem>, startIndex: Int) {
+  private suspend fun startQueuePlayback(
+      items: List<PlaybackItem>,
+      startIndex: Int,
+      musicSettings: MusicPlaybackSettings = MusicPlaybackSettings(),
+  ) {
     if (items.isEmpty()) return
     val mediaType = items.first().mediaType
     require(items.all { it.mediaType == mediaType }) { "Playback queues cannot mix media types" }
@@ -504,6 +556,7 @@ constructor(
     playbackRepository.replaceQueue(mediaType, items.map { it.id })
     try {
       player.setMediaItems(items.map(::mediaItem), startIndex.coerceIn(items.indices), 0L)
+      applyPlaybackSettings(player, mediaType, musicSettings)
       player.setPlaybackSpeed(speed)
       player.prepare()
       player.play()
@@ -524,6 +577,14 @@ constructor(
     _queue.value = queue.copy(currentMediaId = mediaId, mediaType = item.mediaType)
     _nowPlaying.value = nowPlayingSnapshot(player, item)
     startProgressUpdates()
+  }
+
+  private fun updateMusicPlaybackSettings(playbackSettings: MusicPlaybackSettings) {
+    if (_musicPlaybackSettings.value == playbackSettings) return
+    _musicPlaybackSettings.value = playbackSettings
+    if (_queue.value.mediaType == PlaybackMediaType.Music) {
+      controller?.let { applyPlaybackSettings(it, PlaybackMediaType.Music, playbackSettings) }
+    }
   }
 
   private suspend fun handleMediaItemTransition(
@@ -730,6 +791,31 @@ constructor(
           )
           .build()
 }
+
+internal fun applyPlaybackSettings(
+    player: Player,
+    mediaType: PlaybackMediaType?,
+    settings: MusicPlaybackSettings = MusicPlaybackSettings(),
+) {
+  val musicSettings = settings.takeIf { mediaType == PlaybackMediaType.Music }
+  player.shuffleModeEnabled = musicSettings?.shuffleEnabled == true
+  player.repeatMode = musicSettings?.repeatMode.toPlayerRepeatMode()
+}
+
+internal fun MusicRepeatMode?.toPlayerRepeatMode(): Int =
+    when (this) {
+      MusicRepeatMode.All -> Player.REPEAT_MODE_ALL
+      MusicRepeatMode.One -> Player.REPEAT_MODE_ONE
+      MusicRepeatMode.Off,
+      null -> Player.REPEAT_MODE_OFF
+    }
+
+internal fun Int.toMusicRepeatMode(): MusicRepeatMode =
+    when (this) {
+      Player.REPEAT_MODE_ALL -> MusicRepeatMode.All
+      Player.REPEAT_MODE_ONE -> MusicRepeatMode.One
+      else -> MusicRepeatMode.Off
+    }
 
 internal fun playbackDuration(playerDurationMs: Long, itemDurationMs: Long?): Long =
     playerDurationMs.takeIf { it > 0L } ?: itemDurationMs?.takeIf { it > 0L } ?: 0L

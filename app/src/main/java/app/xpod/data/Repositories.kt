@@ -50,6 +50,22 @@ enum class ThemeMode {
   Dark,
 }
 
+enum class MusicRepeatMode {
+  Off,
+  All,
+  One;
+
+  fun next(): MusicRepeatMode = entries[(ordinal + 1) % entries.size]
+}
+
+data class MusicPlaybackSettings(
+    val shuffleEnabled: Boolean = false,
+    val repeatMode: MusicRepeatMode = MusicRepeatMode.Off,
+)
+
+internal fun parseMusicRepeatMode(value: String?): MusicRepeatMode =
+    MusicRepeatMode.entries.firstOrNull { it.name == value } ?: MusicRepeatMode.Off
+
 enum class AppTab {
   Podcasts,
   Reader,
@@ -335,6 +351,8 @@ constructor(@param:ApplicationContext private val context: Context) {
   private val tabOrderKey = stringPreferencesKey("tab_order")
   private val disabledTabsKey = stringPreferencesKey("disabled_tabs")
   private val localMusicTreeUriKey = stringPreferencesKey("local_music_tree_uri")
+  private val musicShuffleEnabledKey = booleanPreferencesKey("music_shuffle_enabled")
+  private val musicRepeatModeKey = stringPreferencesKey("music_repeat_mode")
   val useDynamicColor: Flow<Boolean> = context.settingsStore.data.map { it[dynamicColor] ?: true }
   val defaultSpeed: Flow<Float> = context.settingsStore.data.map { it[speed] ?: 1f }
   val appTheme: Flow<ThemeMode> =
@@ -352,6 +370,13 @@ constructor(@param:ApplicationContext private val context: Context) {
       }
   val localMusicTreeUri: Flow<String?> =
       context.settingsStore.data.map { preferences -> preferences[localMusicTreeUriKey] }
+  val musicPlaybackSettings: Flow<MusicPlaybackSettings> =
+      context.settingsStore.data.map { preferences ->
+        MusicPlaybackSettings(
+            shuffleEnabled = preferences[musicShuffleEnabledKey] ?: false,
+            repeatMode = parseMusicRepeatMode(preferences[musicRepeatModeKey]),
+        )
+      }
 
   suspend fun setDynamicColor(enabled: Boolean) {
     context.settingsStore.edit { it[dynamicColor] = enabled }
@@ -377,6 +402,26 @@ constructor(@param:ApplicationContext private val context: Context) {
   }
 
   suspend fun localMusicTreeUriValue(): String? = localMusicTreeUri.first()
+
+  suspend fun musicPlaybackSettingsValue(): MusicPlaybackSettings = musicPlaybackSettings.first()
+
+  suspend fun toggleMusicShuffle(): Boolean {
+    var updated = false
+    context.settingsStore.edit { preferences ->
+      updated = !(preferences[musicShuffleEnabledKey] ?: false)
+      preferences[musicShuffleEnabledKey] = updated
+    }
+    return updated
+  }
+
+  suspend fun cycleMusicRepeatMode(): MusicRepeatMode {
+    var updated = MusicRepeatMode.Off
+    context.settingsStore.edit { preferences ->
+      updated = parseMusicRepeatMode(preferences[musicRepeatModeKey]).next()
+      preferences[musicRepeatModeKey] = updated.name
+    }
+    return updated
+  }
 
   suspend fun moveTab(tab: AppTab, offset: Int) {
     context.settingsStore.edit { preferences ->

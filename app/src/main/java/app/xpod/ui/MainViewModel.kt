@@ -297,6 +297,7 @@ constructor(
       )
   val nowPlaying = player.nowPlaying
   val queue = player.queue
+  val musicPlaybackSettings = player.musicPlaybackSettings
   val downloadStates = downloads.states
 
   init {
@@ -672,6 +673,16 @@ constructor(
   fun skipToPrevious() = viewModelScope.launch {
     runCatchingCancellable { player.skipToPrevious() }
         .onFailure { status.value = context.getString(R.string.could_not_control_playback) }
+  }
+
+  fun toggleMusicShuffle() = viewModelScope.launch {
+    runCatchingCancellable { player.toggleMusicShuffle() }
+        .onFailure { status.value = context.getString(R.string.could_not_change_playback_mode) }
+  }
+
+  fun cycleMusicRepeatMode() = viewModelScope.launch {
+    runCatchingCancellable { player.cycleMusicRepeatMode() }
+        .onFailure { status.value = context.getString(R.string.could_not_change_playback_mode) }
   }
 
   fun playNext(episode: EpisodeEntity) = viewModelScope.launch {
