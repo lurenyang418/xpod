@@ -27,6 +27,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -81,6 +82,12 @@ internal fun QueueSheet(
             IconToggleButton(
                 checked = musicPlaybackSettings.shuffleEnabled,
                 onCheckedChange = { onToggleShuffle() },
+                colors =
+                    IconButtonDefaults.iconToggleButtonColors(
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        checkedContainerColor = MaterialTheme.colorScheme.primary,
+                        checkedContentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
             ) {
               Icon(
                   Icons.Filled.Shuffle,
@@ -88,13 +95,22 @@ internal fun QueueSheet(
                       if (musicPlaybackSettings.shuffleEnabled) R.string.shuffle_on
                       else R.string.shuffle_off
                   ),
-                  tint =
-                      if (musicPlaybackSettings.shuffleEnabled) MaterialTheme.colorScheme.primary
-                      else MaterialTheme.colorScheme.onSurfaceVariant,
               )
             }
-            IconButton(onClick = onCycleRepeatMode) {
-              val repeatMode = musicPlaybackSettings.repeatMode
+            val repeatMode = musicPlaybackSettings.repeatMode
+            IconButton(
+                onClick = onCycleRepeatMode,
+                colors =
+                    IconButtonDefaults.iconButtonColors(
+                        containerColor =
+                            if (repeatMode == MusicRepeatMode.Off) MaterialTheme.colorScheme.surface
+                            else MaterialTheme.colorScheme.primary,
+                        contentColor =
+                            if (repeatMode == MusicRepeatMode.Off)
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.onPrimary,
+                    ),
+            ) {
               Icon(
                   if (repeatMode == MusicRepeatMode.One) Icons.Filled.RepeatOne
                   else Icons.Filled.Repeat,
@@ -105,10 +121,6 @@ internal fun QueueSheet(
                         MusicRepeatMode.One -> R.string.repeat_one
                       }
                   ),
-                  tint =
-                      if (repeatMode == MusicRepeatMode.Off)
-                          MaterialTheme.colorScheme.onSurfaceVariant
-                      else MaterialTheme.colorScheme.primary,
               )
             }
           }
