@@ -46,6 +46,12 @@
     <string name="forward_30_seconds">Forward 30 seconds</string>
     <string name="unknown_author">Unknown author</string>
     <string name="refresh_feed">Refresh feed</string>
+    <string name="refresh_all_podcasts">Refresh all podcasts</string>
+    <string name="podcasts_refreshed">Podcasts refreshed</string>
+    <plurals name="podcasts_refreshed_with_failures">
+        <item quantity="one">Refreshed %1$d of %2$d podcasts (%3$d failed)</item>
+        <item quantity="other">Refreshed %1$d of %2$d podcasts (%3$d failed)</item>
+    </plurals>
     <string name="episodes">Episodes</string>
     <string name="favorite">Favorite</string>
     <string name="remove_favorite">Remove favorite</string>
@@ -112,6 +118,8 @@
     <string name="wifi_only_downloads">Download on Wi-Fi only</string>
     <string name="wifi_only_downloads_summary">Turn off to allow mobile data downloads</string>
     <string name="downloaded">Downloaded</string>
+    <string name="no_library_matches">No episodes match the current filter.</string>
+    <string name="show_all">Show all</string>
     <string name="remove_subscription">Remove subscription</string>
     <string name="remove_subscription_title">Remove subscription?</string>
     <string name="remove_subscription_message">Its episodes and playback history will be removed from this device.</string>

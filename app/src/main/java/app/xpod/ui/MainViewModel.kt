@@ -59,6 +59,7 @@ import org.xmlpull.v1.XmlPullParserException
 
 data class MainUiState(
     val podcasts: List<PodcastEntity> = emptyList(),
+    val isRefreshingPodcasts: Boolean = false,
     val newEpisodeCounts: Map<String, Int> = emptyMap(),
     val unplayedEpisodeCounts: Map<String, Int> = emptyMap(),
     val selectedPodcastId: String? = null,
@@ -182,6 +183,7 @@ constructor(
 ) : ViewModel() {
   private val selected = MutableStateFlow<String?>(null)
   private val status = MutableStateFlow<String?>(null)
+  private val refreshingPodcasts = MutableStateFlow(false)
   private val refreshingArticles = MutableStateFlow(false)
   private val musicQuery = MutableStateFlow("")
   private val musicScanning = MutableStateFlow(false)
@@ -201,22 +203,28 @@ constructor(
     if (id == null) kotlinx.coroutines.flow.flowOf(emptyList()) else podcasts.episodes(id)
   }
   private val podcastState =
-      combine(podcasts.podcasts(), selected, episodes, podcasts.allEpisodes(), status) {
-          all,
-          id,
-          items,
-          library,
-          message ->
-        MainUiState(
-            podcasts = all,
-            newEpisodeCounts = library.filter { it.isNew }.groupingBy { it.podcastId }.eachCount(),
-            unplayedEpisodeCounts =
-                library.filterNot { it.isPlayed }.groupingBy { it.podcastId }.eachCount(),
-            selectedPodcastId = id,
-            episodes = items,
-            libraryEpisodes = library,
-            status = message,
-        )
+      combine(
+          combine(podcasts.podcasts(), selected, episodes, podcasts.allEpisodes(), status) {
+              all,
+              id,
+              items,
+              library,
+              message ->
+            MainUiState(
+                podcasts = all,
+                newEpisodeCounts =
+                    library.filter { it.isNew }.groupingBy { it.podcastId }.eachCount(),
+                unplayedEpisodeCounts =
+                    library.filterNot { it.isPlayed }.groupingBy { it.podcastId }.eachCount(),
+                selectedPodcastId = id,
+                episodes = items,
+                libraryEpisodes = library,
+                status = message,
+            )
+          },
+          refreshingPodcasts,
+      ) { base, refreshing ->
+        base.copy(isRefreshingPodcasts = refreshing)
       }
   val state: StateFlow<MainUiState> =
       combine(podcastState, reader.feeds(), reader.articles(), refreshingArticles) {
@@ -467,8 +475,37 @@ constructor(
   }
 
   fun refresh(feedUrl: String) = viewModelScope.launch {
-    podcasts.addOrRefresh(feedUrl).onFailure {
-      status.value = context.getString(R.string.could_not_refresh_feed)
+    if (refreshingPodcasts.value) return@launch
+    refreshingPodcasts.value = true
+    try {
+      podcasts.addOrRefresh(feedUrl).onFailure {
+        status.value = context.getString(R.string.could_not_refresh_feed)
+      }
+    } finally {
+      refreshingPodcasts.value = false
+    }
+  }
+
+  fun refreshAllPodcasts() = viewModelScope.launch {
+    if (refreshingPodcasts.value) return@launch
+    refreshingPodcasts.value = true
+    try {
+      val result = podcasts.refreshAll()
+      status.value =
+          if (result.failureCount == 0) {
+            context.getString(R.string.podcasts_refreshed)
+          } else {
+            val total = result.refreshedCount + result.failureCount
+            context.resources.getQuantityString(
+                R.plurals.podcasts_refreshed_with_failures,
+                total,
+                result.refreshedCount,
+                total,
+                result.failureCount,
+            )
+          }
+    } finally {
+      refreshingPodcasts.value = false
     }
   }
 

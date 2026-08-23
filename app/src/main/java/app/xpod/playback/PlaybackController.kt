@@ -248,7 +248,23 @@ constructor(
 
   suspend fun play(episode: EpisodeEntity) = playbackMutationMutex.withLock {
     restoredQueueApplied = true
-    startQueuePlayback(listOf(episode.asPlaybackItem()), 0)
+    val inactivePodcastQueue =
+        if (_queue.value.mediaType != PlaybackMediaType.Podcast) {
+          playbackRepository.queue(PlaybackMediaType.Podcast).mapNotNull { resolve(it) }
+        } else {
+          emptyList()
+        }
+    val restoreQueue = inactivePodcastQueue.any { it.id == episode.id }
+    val items = if (restoreQueue) inactivePodcastQueue else listOf(episode.asPlaybackItem())
+    val startIndex = items.indexOfFirst { it.id == episode.id }.coerceAtLeast(0)
+    val podcastState = playbackRepository.state(PlaybackMediaType.Podcast)
+    val startPositionMs =
+        if (restoreQueue && podcastState?.mediaId == episode.id) {
+          podcastState.positionMs
+        } else {
+          0L
+        }
+    startQueuePlayback(items, startIndex, startPositionMs = startPositionMs)
   }
 
   suspend fun playMusic(tracks: List<LocalTrackEntity>, startTrackId: String) {
@@ -544,18 +560,26 @@ constructor(
       items: List<PlaybackItem>,
       startIndex: Int,
       musicSettings: MusicPlaybackSettings = MusicPlaybackSettings(),
+      startPositionMs: Long = 0L,
   ) {
     if (items.isEmpty()) return
     val mediaType = items.first().mediaType
     require(items.all { it.mediaType == mediaType }) { "Playback queues cannot mix media types" }
     val player = controller()
+    if (_queue.value.mediaType != null && _queue.value.mediaType != mediaType) {
+      persistActivePlayback(player)
+    }
     val speed = if (mediaType == PlaybackMediaType.Podcast) settings.defaultSpeed.first() else 1f
     val previous =
         _queue.value.takeIf { it.mediaType == mediaType }?.items
             ?: playbackRepository.queue(mediaType).mapNotNull { resolve(it) }
     playbackRepository.replaceQueue(mediaType, items.map { it.id })
     try {
-      player.setMediaItems(items.map(::mediaItem), startIndex.coerceIn(items.indices), 0L)
+      player.setMediaItems(
+          items.map(::mediaItem),
+          startIndex.coerceIn(items.indices),
+          startPositionMs.coerceAtLeast(0L),
+      )
       applyPlaybackSettings(player, mediaType, musicSettings)
       player.setPlaybackSpeed(speed)
       player.prepare()
@@ -568,6 +592,18 @@ constructor(
     _nowPlaying.value = nowPlayingSnapshot(player, item)
     _queue.value = PlaybackQueue(items, item.id, mediaType)
     startProgressUpdates()
+  }
+
+  private suspend fun persistActivePlayback(player: MediaController) {
+    val currentMediaItem = player.currentMediaItem ?: return
+    val mediaType = PlaybackMediaType.fromMediaId(currentMediaItem.mediaId)
+    if (_queue.value.items.none { it.id == currentMediaItem.mediaId }) return
+    playbackRepository.save(
+        mediaId = currentMediaItem.mediaId,
+        mediaType = mediaType,
+        positionMs = player.currentPosition,
+        speed = player.playbackParameters.speed,
+    )
   }
 
   private fun synchronizeActivePlayback(player: MediaController) {

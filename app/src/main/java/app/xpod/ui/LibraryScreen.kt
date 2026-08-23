@@ -1,8 +1,10 @@
 package app.xpod.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -10,11 +12,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -24,13 +28,13 @@ import app.xpod.data.EpisodeEntity
 import app.xpod.playback.NowPlaying
 
 private enum class LibraryFilter {
-  All,
-  ContinueListening,
-  Recent,
-  Unplayed,
-  Favorites,
-  DownloadTasks,
   Downloaded,
+  DownloadTasks,
+  ContinueListening,
+  Unplayed,
+  Recent,
+  Favorites,
+  All,
 }
 
 @Composable
@@ -46,7 +50,7 @@ internal fun LibraryScreen(
     togglePlayback: () -> Unit,
     addToQueue: (EpisodeEntity) -> Unit,
 ) {
-  var filter by remember { mutableStateOf(LibraryFilter.All) }
+  var filter by remember { mutableStateOf(LibraryFilter.Downloaded) }
   val episodes =
       when (filter) {
         LibraryFilter.ContinueListening ->
@@ -72,20 +76,36 @@ internal fun LibraryScreen(
         FilterChip(filter == item, { filter = item }, label = { Text(libraryFilterLabel(item)) })
       }
     }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-      items(episodes, key = { it.id }) {
-        EpisodeCard(
-            it,
-            play,
-            download,
-            favorite,
-            played,
-            nowPlaying,
-            downloadStates[it.id],
-            openEpisode,
-            togglePlayback,
-            addToQueue,
-        )
+    if (episodes.isEmpty()) {
+      Box(
+          Modifier.fillMaxWidth().weight(1f),
+          contentAlignment = Alignment.Center,
+      ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+          Text(stringResource(R.string.no_library_matches))
+          if (filter != LibraryFilter.All) {
+            TextButton(onClick = { filter = LibraryFilter.All }) {
+              Text(stringResource(R.string.show_all))
+            }
+          }
+        }
+      }
+    } else {
+      LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(episodes, key = { it.id }) {
+          EpisodeCard(
+              it,
+              play,
+              download,
+              favorite,
+              played,
+              nowPlaying,
+              downloadStates[it.id],
+              openEpisode,
+              togglePlayback,
+              addToQueue,
+          )
+        }
       }
     }
   }

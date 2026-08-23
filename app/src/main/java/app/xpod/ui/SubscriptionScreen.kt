@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
@@ -72,6 +73,7 @@ internal fun SubscriptionScreen(
     wide: Boolean,
     select: (String?) -> Unit,
     refresh: (String) -> Unit,
+    refreshAll: () -> Unit,
     play: (EpisodeEntity) -> Unit,
     download: (EpisodeEntity) -> Unit,
     favorite: (String) -> Unit,
@@ -97,11 +99,13 @@ internal fun SubscriptionScreen(
               state.unplayedEpisodeCounts,
               select,
               refresh,
+              refreshAll,
               showQueue,
               delete,
               requestMarkAllPlayed,
               bulkActionBusy,
               Modifier.weight(0.42f),
+              state.isRefreshingPodcasts,
           )
           EpisodeList(
               state.episodes,
@@ -125,11 +129,13 @@ internal fun SubscriptionScreen(
             state.unplayedEpisodeCounts,
             select,
             refresh,
+            refreshAll,
             showQueue,
             delete,
             requestMarkAllPlayed,
             bulkActionBusy,
             Modifier.fillMaxSize(),
+            state.isRefreshingPodcasts,
         )
     else ->
         EpisodeList(
@@ -177,11 +183,13 @@ private fun PodcastList(
     unplayedEpisodeCounts: Map<String, Int>,
     select: (String?) -> Unit,
     refresh: (String) -> Unit,
+    refreshAll: () -> Unit,
     showQueue: () -> Unit,
     delete: (PodcastEntity) -> Unit,
     requestMarkAllPlayed: (String) -> Unit,
     bulkActionBusy: Boolean,
     modifier: Modifier,
+    isRefreshing: Boolean,
 ) =
     LazyColumn(modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
       item {
@@ -191,6 +199,13 @@ private fun PodcastList(
               Modifier.weight(1f),
               style = MaterialTheme.typography.headlineSmall,
           )
+          if (isRefreshing) {
+            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+          } else {
+            IconButton(onClick = refreshAll) {
+              Icon(Icons.Filled.Refresh, stringResource(R.string.refresh_all_podcasts))
+            }
+          }
           IconButton(onClick = showQueue) {
             Icon(Icons.AutoMirrored.Filled.QueueMusic, stringResource(R.string.queue))
           }
@@ -244,6 +259,7 @@ private fun PodcastList(
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.refresh_feed)) },
                     leadingIcon = { Icon(Icons.Filled.Refresh, null) },
+                    enabled = !isRefreshing,
                     onClick = {
                       menuExpanded = false
                       refresh(podcast.feedUrl)

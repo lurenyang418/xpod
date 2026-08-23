@@ -267,6 +267,7 @@ class PlaybackService : MediaLibraryService() {
           positionMs = player.currentPosition,
           durationMs = player.duration,
           speed = player.playbackParameters.speed,
+          capturedAtEpochMs = System.currentTimeMillis(),
       )
 
   private suspend fun persist(snapshot: PlaybackSnapshot) {
@@ -275,6 +276,7 @@ class PlaybackService : MediaLibraryService() {
         snapshot.mediaType,
         snapshot.positionMs,
         snapshot.speed,
+        snapshot.capturedAtEpochMs,
     )
     if (
         snapshot.mediaType == PlaybackMediaType.Podcast &&
@@ -485,6 +487,7 @@ class PlaybackService : MediaLibraryService() {
       val positionMs: Long,
       val durationMs: Long,
       val speed: Float,
+      val capturedAtEpochMs: Long,
   )
 
   private data class PlaybackResumption(

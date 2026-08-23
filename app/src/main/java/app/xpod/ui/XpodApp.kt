@@ -444,6 +444,7 @@ private fun XpodHome(
               wide = wide,
               select = viewModel::selectPodcast,
               refresh = viewModel::refresh,
+              refreshAll = viewModel::refreshAllPodcasts,
               play = playEpisode,
               download = handleDownload,
               favorite = viewModel::toggleFavorite,

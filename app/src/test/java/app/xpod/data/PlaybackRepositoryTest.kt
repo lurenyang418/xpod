@@ -1,6 +1,8 @@
 package app.xpod.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlaybackRepositoryTest {
@@ -12,6 +14,20 @@ class PlaybackRepositoryTest {
     assertEquals(
         Long.MAX_VALUE,
         nextPlaybackTimestamp(nowEpochMs = 123L, previousEpochMs = Long.MAX_VALUE),
+    )
+  }
+
+  @Test
+  fun stalePlaybackSnapshotsAreIgnored() {
+    assertTrue(
+        shouldPersistPlaybackSnapshot(previousUpdatedAtEpochMs = null, capturedAtEpochMs = 1L)
+    )
+    assertTrue(shouldPersistPlaybackSnapshot(previousUpdatedAtEpochMs = 1L, capturedAtEpochMs = 2L))
+    assertFalse(
+        shouldPersistPlaybackSnapshot(previousUpdatedAtEpochMs = 2L, capturedAtEpochMs = 1L)
+    )
+    assertFalse(
+        shouldPersistPlaybackSnapshot(previousUpdatedAtEpochMs = 2L, capturedAtEpochMs = 2L)
     )
   }
 }

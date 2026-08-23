@@ -220,6 +220,8 @@ constructor(
             .awaitAll()
             .filterNotNull()
     FeedRefreshResult(
+        refreshedCount = feeds.size - failures.size,
+        failureCount = failures.size,
         shouldRetry = failures.any(::shouldRetryFeedRefresh),
     )
   }
@@ -270,7 +272,11 @@ constructor(
   }
 }
 
-data class FeedRefreshResult(val shouldRetry: Boolean)
+data class FeedRefreshResult(
+    val refreshedCount: Int,
+    val failureCount: Int,
+    val shouldRetry: Boolean,
+)
 
 @Singleton
 class PlaybackRepository
@@ -281,7 +287,12 @@ constructor(private val database: XpodDatabase, private val clock: Clock) {
       mediaType: PlaybackMediaType,
       positionMs: Long,
       speed: Float,
+      capturedAtEpochMs: Long = clock.millis(),
   ) = database.withTransaction {
+    val previous = database.playback().state(mediaType.name)
+    if (!shouldPersistPlaybackSnapshot(previous?.updatedAtEpochMs, capturedAtEpochMs)) {
+      return@withTransaction
+    }
     val availableMediaId = mediaId?.takeIf { id ->
       when (mediaType) {
         PlaybackMediaType.Podcast -> database.episodes().find(id) != null
@@ -290,7 +301,7 @@ constructor(private val database: XpodDatabase, private val clock: Clock) {
     }
     val updatedAtEpochMs =
         nextPlaybackTimestamp(
-            nowEpochMs = clock.millis(),
+            nowEpochMs = capturedAtEpochMs,
             previousEpochMs = database.playback().latestUpdatedAt(),
         )
     database
@@ -339,6 +350,11 @@ internal fun nextPlaybackTimestamp(nowEpochMs: Long, previousEpochMs: Long?): Lo
       previousEpochMs == Long.MAX_VALUE -> Long.MAX_VALUE
       else -> maxOf(nowEpochMs, previousEpochMs + 1L)
     }
+
+internal fun shouldPersistPlaybackSnapshot(
+    previousUpdatedAtEpochMs: Long?,
+    capturedAtEpochMs: Long,
+): Boolean = previousUpdatedAtEpochMs == null || capturedAtEpochMs > previousUpdatedAtEpochMs
 
 @Singleton
 class SettingsRepository

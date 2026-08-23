@@ -88,8 +88,14 @@ constructor(
   }
 
   suspend fun refreshAll(): FeedRefreshResult {
-    val errors = refresh(database.articleFeeds().all().map(ArticleFeedEntity::feedUrl))
-    return FeedRefreshResult(errors.any(::shouldRetryFeedRefresh))
+    val feeds = database.articleFeeds().all()
+    val errors = refresh(feeds.map(ArticleFeedEntity::feedUrl))
+    val total = feeds.size
+    return FeedRefreshResult(
+        refreshedCount = total - errors.size,
+        failureCount = errors.size,
+        shouldRetry = errors.any(::shouldRetryFeedRefresh),
+    )
   }
 
   suspend fun markRead(id: String) = database.articles().markRead(id)

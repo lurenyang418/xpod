@@ -43,6 +43,11 @@
     <string name="forward_30_seconds">前进 30 秒</string>
     <string name="unknown_author">未知作者</string>
     <string name="refresh_feed">刷新订阅源</string>
+    <string name="refresh_all_podcasts">刷新全部播客</string>
+    <string name="podcasts_refreshed">播客已刷新</string>
+    <plurals name="podcasts_refreshed_with_failures">
+        <item quantity="other">已刷新 %1$d/%2$d 个播客（%3$d 个失败）</item>
+    </plurals>
     <string name="episodes">单集</string>
     <string name="favorite">收藏</string>
     <string name="remove_favorite">取消收藏</string>
@@ -106,6 +111,8 @@
     <string name="wifi_only_downloads">仅 Wi-Fi 下载</string>
     <string name="wifi_only_downloads_summary">关闭后允许使用蜂窝网络下载</string>
     <string name="downloaded">已下载</string>
+    <string name="no_library_matches">当前筛选条件下没有单集</string>
+    <string name="show_all">显示全部</string>
     <string name="remove_subscription">删除订阅</string>
     <string name="remove_subscription_title">删除订阅？</string>
     <string name="remove_subscription_message">该订阅的单集和播放记录将从此设备中移除。</string>

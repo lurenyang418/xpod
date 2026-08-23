@@ -52,8 +52,8 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 
 private enum class ReaderFilter {
-  All,
   Unread,
+  All,
   Favorites,
 }
 
@@ -68,7 +68,7 @@ internal fun ReaderScreen(
     requestMarkAllRead: (String?) -> Unit,
     bulkActionBusy: Boolean,
 ) {
-  var filter by rememberSaveable { mutableStateOf(ReaderFilter.All) }
+  var filter by rememberSaveable { mutableStateOf(ReaderFilter.Unread) }
   var feedId by rememberSaveable { mutableStateOf<String?>(null) }
   var actionsExpanded by remember { mutableStateOf(false) }
   val selectedFeed = state.articleFeeds.firstOrNull { it.id == feedId }
@@ -81,10 +81,12 @@ internal fun ReaderScreen(
       remember(state.articleFeeds) { state.articleFeeds.associate { it.id to it.title } }
   val articles =
       when (filter) {
-        ReaderFilter.All -> state.articles
-        ReaderFilter.Unread -> state.articles.filterNot { it.isRead }
-        ReaderFilter.Favorites -> state.articles.filter { it.isFavorite }
-      }.filter { feedId == null || it.feedId == feedId }
+            ReaderFilter.All -> state.articles
+            ReaderFilter.Unread -> state.articles.filterNot { it.isRead }
+            ReaderFilter.Favorites -> state.articles.filter { it.isFavorite }
+          }
+          .filter { feedId == null || it.feedId == feedId }
+          .let(::orderReaderArticles)
   Column(Modifier.fillMaxSize().padding(12.dp)) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -270,6 +272,11 @@ internal fun ReaderScreen(
     }
   }
 }
+
+internal fun orderReaderArticles(articles: List<ArticleEntity>): List<ArticleEntity> =
+    articles.sortedWith(
+        compareBy<ArticleEntity> { it.isRead }.thenByDescending { it.publishedEpochMs }
+    )
 
 @Composable
 private fun readerFilterLabel(filter: ReaderFilter) =
