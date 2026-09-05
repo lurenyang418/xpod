@@ -32,6 +32,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -51,9 +52,18 @@ import app.xpod.playback.NowPlaying
 import coil3.compose.AsyncImage
 import java.util.Locale
 
+@Immutable
+data class MiniPlaybackSummary(
+    val mediaType: PlaybackMediaType,
+    val title: String,
+    val artworkUri: String?,
+    val isPlaying: Boolean,
+    val speed: Float,
+)
+
 @Composable
 internal fun MiniPlayer(
-    nowPlaying: NowPlaying,
+    summary: MiniPlaybackSummary,
     onToggle: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
@@ -72,21 +82,21 @@ internal fun MiniPlayer(
           verticalAlignment = Alignment.CenterVertically,
       ) {
         Artwork(
-            nowPlaying.item.artworkUri,
+            summary.artworkUri,
             null,
             Modifier.size(40.dp),
-            nowPlaying.item.mediaType,
+            summary.mediaType,
         )
         Text(
-            nowPlaying.item.title,
+            summary.title,
             Modifier.weight(1f).padding(horizontal = 12.dp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.titleSmall,
         )
-        if (nowPlaying.item.mediaType == PlaybackMediaType.Podcast) {
+        if (summary.mediaType == PlaybackMediaType.Podcast) {
           IconButton(onClick = onShowSpeedPicker) {
-            Text(speedLabel(nowPlaying.speed), style = MaterialTheme.typography.labelMedium)
+            Text(speedLabel(summary.speed), style = MaterialTheme.typography.labelMedium)
           }
         } else {
           IconButton(onClick = onPrevious) {
@@ -95,11 +105,11 @@ internal fun MiniPlayer(
         }
         IconButton(onClick = onToggle) {
           Icon(
-              if (nowPlaying.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-              stringResource(if (nowPlaying.isPlaying) R.string.pause else R.string.play),
+              if (summary.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+              stringResource(if (summary.isPlaying) R.string.pause else R.string.play),
           )
         }
-        if (nowPlaying.item.mediaType == PlaybackMediaType.Music) {
+        if (summary.mediaType == PlaybackMediaType.Music) {
           IconButton(onClick = onNext) {
             Icon(Icons.Filled.SkipNext, stringResource(R.string.next_track))
           }

@@ -11,8 +11,8 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.LibraryResult
@@ -45,6 +45,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
 
 @AndroidEntryPoint
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
@@ -52,6 +53,7 @@ class PlaybackService : MediaLibraryService() {
   @Inject lateinit var playbackRepository: PlaybackRepository
   @Inject lateinit var settings: SettingsRepository
   @Inject lateinit var database: XpodDatabase
+  @Inject lateinit var okHttpClient: OkHttpClient
   private val playerScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
   private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private var session: MediaLibrarySession? = null
@@ -67,7 +69,7 @@ class PlaybackService : MediaLibraryService() {
     val cachedHttpDataSource =
         CacheDataSource.Factory()
             .setCache(DownloadComponent.cache(this))
-            .setUpstreamDataSourceFactory(DefaultHttpDataSource.Factory())
+            .setUpstreamDataSourceFactory(OkHttpDataSource.Factory(okHttpClient))
     val mediaDataSource = DefaultDataSource.Factory(this, cachedHttpDataSource)
     val player =
         ExoPlayer.Builder(this)

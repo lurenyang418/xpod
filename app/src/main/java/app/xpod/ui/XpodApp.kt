@@ -56,6 +56,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -84,7 +85,6 @@ import app.xpod.data.PlaybackMediaType
 import app.xpod.data.PodcastEntity
 import app.xpod.data.ThemeMode
 import app.xpod.data.cloudMemoWebUrl
-import app.xpod.playback.NowPlaying
 import kotlinx.coroutines.launch
 
 @Composable
@@ -100,13 +100,17 @@ fun XpodApp(viewModel: MainViewModel = hiltViewModel()) {
   val context = LocalContext.current
   val notificationPermission =
       rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
-  val requestNotificationPermission = {
-    if (
-        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-    )
-        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-  }
+  val requestNotificationPermission =
+      remember(context) {
+        val request: () -> Unit = {
+          if (
+              ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                  PackageManager.PERMISSION_GRANTED
+          )
+              notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        request
+      }
   val scheme =
       when {
         dynamic && dark -> dynamicDarkColorScheme(context)
@@ -131,11 +135,29 @@ private fun XpodHome(
   val resources = LocalResources.current
   val state by viewModel.state.collectAsStateWithLifecycle()
   val nowPlaying by viewModel.nowPlaying.collectAsStateWithLifecycle()
+  val miniSummary =
+      remember(nowPlaying) {
+        nowPlaying?.let {
+          MiniPlaybackSummary(
+              mediaType = it.item.mediaType,
+              title = it.item.title,
+              artworkUri = it.item.artworkUri,
+              isPlaying = it.isPlaying,
+              speed = it.speed,
+          )
+        }
+      }
   val downloadStates by viewModel.downloadStates.collectAsStateWithLifecycle()
   val wifiOnlyDownloads by viewModel.wifiOnlyDownloads.collectAsStateWithLifecycle()
   val cloudMemos by viewModel.cloudMemosState.collectAsStateWithLifecycle()
-  val memos by viewModel.memosState.collectAsStateWithLifecycle()
-  val music by viewModel.musicState.collectAsStateWithLifecycle()
+  val memosViewModel: MemosViewModel = hiltViewModel()
+  val memos by memosViewModel.memosState.collectAsStateWithLifecycle()
+  val memosConnection by memosViewModel.connection.collectAsStateWithLifecycle()
+  val memosReloadToken by memosViewModel.reloadToken.collectAsStateWithLifecycle()
+  val memosStatus by memosViewModel.status.collectAsStateWithLifecycle()
+  val musicViewModel: MusicViewModel = hiltViewModel()
+  val music by musicViewModel.musicState.collectAsStateWithLifecycle()
+  val musicStatus by musicViewModel.status.collectAsStateWithLifecycle()
   val bulkActions by viewModel.bulkActionsState.collectAsStateWithLifecycle()
   val tabOrder by viewModel.tabOrder.collectAsStateWithLifecycle()
   val enabledTabs by viewModel.enabledTabs.collectAsStateWithLifecycle()
@@ -144,37 +166,44 @@ private fun XpodHome(
   val musicPlaybackSettings by viewModel.musicPlaybackSettings.collectAsStateWithLifecycle()
   val musicFolderPicker =
       rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        uri?.let(viewModel::selectMusicFolder)
+        uri?.let(musicViewModel::selectMusicFolder)
       }
   val containerWidth = LocalWindowInfo.current.containerSize.width
   val wide = with(LocalDensity.current) { containerWidth.toDp() >= 600.dp }
   val snackbar = remember { SnackbarHostState() }
   val coroutineScope = rememberCoroutineScope()
   val memosComposerActions =
-      remember(viewModel) {
+      remember(memosViewModel) {
         MemosComposerActions(
-            setDraft = viewModel::setMemoDraft,
-            setVisibility = viewModel::setMemoVisibility,
-            create = viewModel::createMemo,
+            setDraft = memosViewModel::setMemoDraft,
+            setVisibility = memosViewModel::setMemoVisibility,
+            create = memosViewModel::createMemo,
         )
       }
   val memosListActions =
-      remember(viewModel) {
+      remember(memosViewModel) {
         MemosListActions(
-            load = viewModel::loadMemos,
-            refresh = viewModel::refreshMemos,
-            loadMore = viewModel::loadMoreMemos,
-            setQuery = viewModel::setMemoQuery,
-            selectTag = viewModel::selectMemoTag,
-            search = viewModel::searchMemos,
+            load = memosViewModel::loadMemos,
+            refresh = memosViewModel::refreshMemos,
+            loadMore = memosViewModel::loadMoreMemos,
+            setQuery = memosViewModel::setMemoQuery,
+            selectTag = memosViewModel::selectMemoTag,
+            search = memosViewModel::searchMemos,
         )
       }
   val memosShareActions =
-      remember(viewModel, context, resources, cloudMemos.baseUrl, coroutineScope, snackbar) {
+      remember(
+          memosViewModel,
+          context,
+          resources,
+          memosConnection.baseUrl,
+          coroutineScope,
+          snackbar,
+      ) {
         MemosShareActions(
             copyMemo = { memo -> copyMemoMarkdown(context, memo) },
             shareMemoLink = { memo ->
-              val url = cloudMemoWebUrl(cloudMemos.baseUrl, memo.id)
+              val url = cloudMemoWebUrl(memosConnection.baseUrl, memo.id)
               val text =
                   if (memo.visibility == CloudMemoVisibility.Members) {
                     resources.getString(R.string.member_memo_share_text, url)
@@ -193,8 +222,8 @@ private fun XpodHome(
                 }
               }
             },
-            requestPrivateMemoShare = viewModel::requestPrivateMemoShare,
-            dismissPrivateMemoShare = viewModel::dismissPrivateMemoShare,
+            requestPrivateMemoShare = memosViewModel::requestPrivateMemoShare,
+            dismissPrivateMemoShare = memosViewModel::dismissPrivateMemoShare,
             sharePrivateMemoContent = { memo ->
               if (memo.visibility == CloudMemoVisibility.Private) {
                 if (
@@ -213,12 +242,12 @@ private fun XpodHome(
         )
       }
   val memosManageActions =
-      remember(viewModel) {
+      remember(memosViewModel) {
         MemosManageActions(
-            archiveMemo = viewModel::archiveMemo,
-            requestDelete = viewModel::requestMemoDelete,
-            dismissDelete = viewModel::dismissMemoDelete,
-            moveToTrash = viewModel::moveMemoToTrash,
+            archiveMemo = memosViewModel::archiveMemo,
+            requestDelete = memosViewModel::requestMemoDelete,
+            dismissDelete = memosViewModel::dismissMemoDelete,
+            moveToTrash = memosViewModel::moveMemoToTrash,
         )
       }
   var destination by rememberSaveable { mutableStateOf(AppTab.Podcasts) }
@@ -248,8 +277,8 @@ private fun XpodHome(
   }
   LaunchedEffect(destination) {
     if (destination != AppTab.Memos) {
-      viewModel.dismissPrivateMemoShare()
-      viewModel.dismissMemoDelete()
+      memosViewModel.dismissPrivateMemoShare()
+      memosViewModel.dismissMemoDelete()
     }
   }
   LaunchedEffect(nowPlaying == null) {
@@ -261,43 +290,99 @@ private fun XpodHome(
   LaunchedEffect(nowPlaying?.item?.mediaType) {
     if (nowPlaying?.item?.mediaType == PlaybackMediaType.Music) showSpeedPicker = false
   }
-  val handleDownload: (EpisodeEntity) -> Unit = { episode ->
-    if (downloadStates[episode.id]?.isCompleted == true) {
-      downloadToRemove = episode
-    } else {
-      requestNotificationPermission()
-      viewModel.download(episode)
+  val handleDownload =
+      remember(viewModel, requestNotificationPermission, downloadStates) {
+        val download: (EpisodeEntity) -> Unit = { episode ->
+          if (downloadStates[episode.id]?.isCompleted == true) {
+            downloadToRemove = episode
+          } else {
+            requestNotificationPermission()
+            viewModel.download(episode)
+          }
+        }
+        download
+      }
+  val playEpisode =
+      remember(viewModel, requestNotificationPermission) {
+        val play: (EpisodeEntity) -> Unit = { episode ->
+          requestNotificationPermission()
+          viewModel.play(episode)
+        }
+        play
+      }
+  val playMusicTrack =
+      remember(musicViewModel, requestNotificationPermission, music) {
+        val play: (LocalTrackEntity) -> Unit = { track ->
+          requestNotificationPermission()
+          musicViewModel.playMusic(music.visibleTracks, track.id)
+        }
+        play
+      }
+  val playQueueItem =
+      remember(viewModel, requestNotificationPermission) {
+        val play: (String) -> Unit = { mediaId ->
+          requestNotificationPermission()
+          viewModel.playQueueItem(mediaId)
+        }
+        play
+      }
+  val togglePlayback =
+      remember(viewModel, requestNotificationPermission) {
+        val toggle: () -> Unit = {
+          requestNotificationPermission()
+          viewModel.togglePlayback()
+        }
+        toggle
+      }
+  val skipToPrevious =
+      remember(viewModel, requestNotificationPermission) {
+        val skip: () -> Unit = {
+          requestNotificationPermission()
+          viewModel.skipToPrevious()
+        }
+        skip
+      }
+  val skipToNext =
+      remember(viewModel, requestNotificationPermission) {
+        val skip: () -> Unit = {
+          requestNotificationPermission()
+          viewModel.skipToNext()
+        }
+        skip
+      }
+  val openFullPlayer = remember {
+    val open: () -> Unit = { fullPlayer = true }
+    open
+  }
+  val showSpeedPickerAction = remember {
+    val show: () -> Unit = { showSpeedPicker = true }
+    show
+  }
+  val selectDestination = remember {
+    val select: (AppTab) -> Unit = { tab ->
+      destination = tab
+      selectedEpisodeId = null
+      selectedArticleId = null
     }
-  }
-  val playEpisode: (EpisodeEntity) -> Unit = { episode ->
-    requestNotificationPermission()
-    viewModel.play(episode)
-  }
-  val playMusicTrack: (LocalTrackEntity) -> Unit = { track ->
-    requestNotificationPermission()
-    viewModel.playMusic(music.visibleTracks, track.id)
-  }
-  val playQueueItem: (String) -> Unit = { mediaId ->
-    requestNotificationPermission()
-    viewModel.playQueueItem(mediaId)
-  }
-  val togglePlayback: () -> Unit = {
-    requestNotificationPermission()
-    viewModel.togglePlayback()
-  }
-  val skipToPrevious: () -> Unit = {
-    requestNotificationPermission()
-    viewModel.skipToPrevious()
-  }
-  val skipToNext: () -> Unit = {
-    requestNotificationPermission()
-    viewModel.skipToNext()
+    select
   }
 
   LaunchedEffect(state.status) {
     state.status?.let {
       snackbar.showSnackbar(it)
       viewModel.dismissStatus()
+    }
+  }
+  LaunchedEffect(memosStatus) {
+    memosStatus?.let {
+      snackbar.showSnackbar(it)
+      memosViewModel.dismissStatus()
+    }
+  }
+  LaunchedEffect(musicStatus) {
+    musicStatus?.let {
+      snackbar.showSnackbar(it)
+      musicViewModel.dismissStatus()
     }
   }
   val archivedMemoForUndo = memos.archivedMemoForUndo
@@ -315,9 +400,9 @@ private fun XpodHome(
               duration = SnackbarDuration.Long,
           )
       if (result == SnackbarResult.ActionPerformed) {
-        viewModel.restoreArchivedMemo(memo.id)
+        memosViewModel.restoreArchivedMemo(memo.id)
       } else {
-        viewModel.dismissArchivedMemoUndo(memo.id)
+        memosViewModel.dismissArchivedMemoUndo(memo.id)
       }
     }
   }
@@ -353,15 +438,25 @@ private fun XpodHome(
       }
     }
   }
-  val back: () -> Unit = {
-    when {
-      fullPlayer -> fullPlayer = false
-      selectedEpisode != null -> selectedEpisodeId = null
-      selectedArticleId != null -> selectedArticleId = null
-      destination == AppTab.Podcasts && state.selectedPodcastId != null ->
-          viewModel.selectPodcast(null)
-    }
-  }
+  val back =
+      remember(
+          fullPlayer,
+          selectedEpisode,
+          selectedArticleId,
+          destination,
+          state.selectedPodcastId,
+      ) {
+        val handleBack: () -> Unit = {
+          when {
+            fullPlayer -> fullPlayer = false
+            selectedEpisode != null -> selectedEpisodeId = null
+            selectedArticleId != null -> selectedArticleId = null
+            destination == AppTab.Podcasts && state.selectedPodcastId != null ->
+                viewModel.selectPodcast(null)
+          }
+        }
+        handleBack
+      }
   BackHandler(
       enabled =
           fullPlayer ||
@@ -370,6 +465,13 @@ private fun XpodHome(
               destination == AppTab.Podcasts && state.selectedPodcastId != null,
       onBack = back,
   )
+  val contentRouteId: String =
+      when {
+        fullPlayer && nowPlaying != null -> "player"
+        selectedEpisode != null -> "episode"
+        selectedArticleId != null -> "article"
+        else -> "tab:${destination.name}"
+      }
   val content: @Composable () -> Unit = {
     when {
       fullPlayer && nowPlaying != null -> {
@@ -492,18 +594,19 @@ private fun XpodHome(
               state = music,
               nowPlaying = nowPlaying,
               chooseFolder = { musicFolderPicker.launch(null) },
-              refresh = viewModel::refreshLocalMusic,
-              cancelScan = viewModel::cancelLocalMusicScan,
-              setQuery = viewModel::setMusicQuery,
+              refresh = musicViewModel::refreshLocalMusic,
+              cancelScan = musicViewModel::cancelLocalMusicScan,
+              setQuery = musicViewModel::setMusicQuery,
               play = playMusicTrack,
               togglePlayback = togglePlayback,
-              playNext = viewModel::playMusicNext,
-              addToQueue = viewModel::addMusicToQueue,
+              playNext = musicViewModel::playMusicNext,
+              addToQueue = musicViewModel::addMusicToQueue,
           )
       destination == AppTab.Memos ->
           MemosScreen(
               state = memos,
-              isConfigured = cloudMemos.isConfigured,
+              isConfigured = memosConnection.isConfigured,
+              accountVersion = memosReloadToken,
               openSettings = { destination = AppTab.Settings },
               composerActions = memosComposerActions,
               listActions = memosListActions,
@@ -553,19 +656,15 @@ private fun XpodHome(
       bottomBar = {
         HomeBottomBar(
             visible = !wide && !fullPlayer && selectedArticleId == null,
-            nowPlaying = nowPlaying,
+            summary = miniSummary,
             destination = destination,
             tabOrder = visibleTabs,
-            onDestinationSelected = {
-              destination = it
-              selectedEpisodeId = null
-              selectedArticleId = null
-            },
+            onDestinationSelected = selectDestination,
             onToggle = togglePlayback,
             onPrevious = skipToPrevious,
             onNext = skipToNext,
-            onOpenPlayer = { fullPlayer = true },
-            onShowSpeedPicker = { showSpeedPicker = true },
+            onOpenPlayer = openFullPlayer,
+            onShowSpeedPicker = showSpeedPickerAction,
         )
       },
   ) { padding ->
@@ -586,7 +685,7 @@ private fun XpodHome(
                 )
               }
             }
-        content()
+        key(contentRouteId) { content() }
       }
       SnackbarHost(
           snackbar,
@@ -791,7 +890,7 @@ private fun BulkMarkDialog(
 @Composable
 private fun HomeBottomBar(
     visible: Boolean,
-    nowPlaying: NowPlaying?,
+    summary: MiniPlaybackSummary?,
     destination: AppTab,
     tabOrder: List<AppTab>,
     onDestinationSelected: (AppTab) -> Unit,
@@ -803,9 +902,9 @@ private fun HomeBottomBar(
 ) {
   if (!visible) return
   Column {
-    nowPlaying?.let {
+    summary?.let {
       MiniPlayer(
-          nowPlaying = it,
+          summary = it,
           onToggle = onToggle,
           onPrevious = onPrevious,
           onNext = onNext,

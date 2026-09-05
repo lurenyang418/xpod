@@ -5,19 +5,30 @@ import android.content.Context
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.cache.NoOpCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadService
 import androidx.media3.exoplayer.scheduler.Requirements
 import app.xpod.R
+import dagger.hilt.android.AndroidEntryPoint
 import java.io.File
+import javax.inject.Inject
+import okhttp3.OkHttpClient
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 object DownloadComponent {
   private var cache: SimpleCache? = null
   private var manager: DownloadManager? = null
+  private var upstream: HttpDataSource.Factory? = null
+
+  @Synchronized
+  fun configure(upstreamFactory: HttpDataSource.Factory) {
+    upstream = upstreamFactory
+  }
 
   @Synchronized
   fun cache(context: Context): SimpleCache =
@@ -36,7 +47,7 @@ object DownloadComponent {
                   context,
                   StandaloneDatabaseProvider(context),
                   cache(context),
-                  DefaultHttpDataSource.Factory(),
+                  upstream ?: DefaultHttpDataSource.Factory(),
                   Runnable::run,
               )
               .apply {
@@ -57,6 +68,7 @@ object DownloadComponent {
 }
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
+@AndroidEntryPoint
 class XpodDownloadService :
     DownloadService(
         FOREGROUND_NOTIFICATION_ID,
@@ -65,7 +77,12 @@ class XpodDownloadService :
         R.string.app_name,
         0,
     ) {
-  override fun getDownloadManager(): DownloadManager = DownloadComponent.manager(this)
+  @Inject lateinit var okHttpClient: OkHttpClient
+
+  override fun getDownloadManager(): DownloadManager {
+    DownloadComponent.configure(OkHttpDataSource.Factory(okHttpClient))
+    return DownloadComponent.manager(this)
+  }
 
   override fun getScheduler() = null
 

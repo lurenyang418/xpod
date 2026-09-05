@@ -73,6 +73,13 @@ android {
 
 room { schemaDirectory("$projectDir/schemas") }
 
+kotlin {
+  composeCompiler {
+    reportsDestination = layout.buildDirectory.dir("compose-reports")
+    metricsDestination = layout.buildDirectory.dir("compose-reports")
+  }
+}
+
 dependencies {
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.activity.compose)

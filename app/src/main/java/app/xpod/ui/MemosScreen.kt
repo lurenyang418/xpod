@@ -56,7 +56,6 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -73,9 +72,12 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.xpod.R
 import app.xpod.data.CloudMemo
 import app.xpod.data.CloudMemoVisibility
@@ -134,13 +136,14 @@ internal data class MemosManageActions(
 internal fun MemosScreen(
     state: MemosUiState,
     isConfigured: Boolean,
+    accountVersion: Int,
     openSettings: () -> Unit,
     composerActions: MemosComposerActions,
     listActions: MemosListActions,
     shareActions: MemosShareActions,
     manageActions: MemosManageActions,
 ) {
-  LaunchedEffect(isConfigured) {
+  LaunchedEffect(isConfigured, accountVersion) {
     if (isConfigured) listActions.load()
   }
   if (!isConfigured) {
@@ -396,8 +399,12 @@ private fun MemoComposer(
         }
       }
       if (showPreview) {
+        val previewLabel = stringResource(R.string.preview)
         Surface(
-            modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 160.dp),
+            modifier =
+                Modifier.fillMaxWidth().defaultMinSize(minHeight = 160.dp).semantics {
+                  contentDescription = previewLabel
+                },
             shape = MaterialTheme.shapes.medium,
             color = MaterialTheme.colorScheme.surfaceContainerLow,
         ) {
@@ -699,7 +706,7 @@ private object BoundedCoil3ImageTransformer : ImageTransformer {
   override fun intrinsicSize(painter: Painter): Size {
     var size by remember(painter) { mutableStateOf(painter.intrinsicSize) }
     if (painter is AsyncImagePainter) {
-      painter.state.collectAsState().value.painter?.intrinsicSize?.let { size = it }
+      painter.state.collectAsStateWithLifecycle().value.painter?.intrinsicSize?.let { size = it }
     }
     return size
   }

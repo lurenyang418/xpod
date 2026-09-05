@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadRequest
@@ -41,6 +42,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 
 private val Context.settingsStore by preferencesDataStore("settings")
 
@@ -462,26 +464,35 @@ constructor(@param:ApplicationContext private val context: Context) {
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class DownloadRepository
 @Inject
-constructor(@param:ApplicationContext private val context: Context) {
+constructor(
+    @param:ApplicationContext private val context: Context,
+    private val okHttpClient: OkHttpClient,
+) {
   private val _states = MutableStateFlow<Map<String, DownloadState>>(emptyMap())
   val states: StateFlow<Map<String, DownloadState>> = _states.asStateFlow()
   private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private val manager: DownloadManager =
-      DownloadComponent.manager(context).also { manager ->
-        manager.addListener(
-            object : DownloadManager.Listener {
-              override fun onDownloadChanged(
-                  downloadManager: DownloadManager,
-                  download: Download,
-                  finalException: Exception?,
-              ) = refreshStates(downloadManager)
+      run {
+            DownloadComponent.configure(OkHttpDataSource.Factory(okHttpClient))
+            DownloadComponent.manager(context)
+          }
+          .also { manager ->
+            manager.addListener(
+                object : DownloadManager.Listener {
+                  override fun onDownloadChanged(
+                      downloadManager: DownloadManager,
+                      download: Download,
+                      finalException: Exception?,
+                  ) = refreshStates(downloadManager)
 
-              override fun onDownloadRemoved(downloadManager: DownloadManager, download: Download) =
-                  refreshStates(downloadManager)
-            }
-        )
-        refreshStates(manager)
-      }
+                  override fun onDownloadRemoved(
+                      downloadManager: DownloadManager,
+                      download: Download,
+                  ) = refreshStates(downloadManager)
+                }
+            )
+            refreshStates(manager)
+          }
 
   fun enqueue(episode: EpisodeEntity): Result<Unit> = runCatching { enqueueOrThrow(episode) }
 

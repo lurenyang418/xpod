@@ -80,13 +80,15 @@ internal fun ReaderScreen(
   val feedTitles =
       remember(state.articleFeeds) { state.articleFeeds.associate { it.id to it.title } }
   val articles =
-      when (filter) {
-            ReaderFilter.All -> state.articles
-            ReaderFilter.Unread -> state.articles.filterNot { it.isRead }
-            ReaderFilter.Favorites -> state.articles.filter { it.isFavorite }
-          }
-          .filter { feedId == null || it.feedId == feedId }
-          .let(::orderReaderArticles)
+      remember(filter, feedId, state.articles) {
+        when (filter) {
+              ReaderFilter.All -> state.articles
+              ReaderFilter.Unread -> state.articles.filterNot { it.isRead }
+              ReaderFilter.Favorites -> state.articles.filter { it.isFavorite }
+            }
+            .filter { feedId == null || it.feedId == feedId }
+            .let(::orderReaderArticles)
+      }
   Column(Modifier.fillMaxSize().padding(12.dp)) {
     Row(
         modifier = Modifier.fillMaxWidth(),

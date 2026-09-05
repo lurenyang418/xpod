@@ -52,22 +52,24 @@ internal fun LibraryScreen(
 ) {
   var filter by remember { mutableStateOf(LibraryFilter.Downloaded) }
   val episodes =
-      when (filter) {
-        LibraryFilter.ContinueListening ->
-            state.libraryEpisodes
-                .filter { !it.isPlayed && it.lastPlayedEpochMs > 0 }
-                .sortedByDescending { it.lastPlayedEpochMs }
-        LibraryFilter.Recent ->
-            state.libraryEpisodes
-                .filter { it.lastPlayedEpochMs > 0 }
-                .sortedByDescending { it.lastPlayedEpochMs }
-        LibraryFilter.Unplayed -> state.libraryEpisodes.filterNot { it.isPlayed }
-        LibraryFilter.Favorites -> state.libraryEpisodes.filter { it.isFavorite }
-        LibraryFilter.DownloadTasks ->
-            state.libraryEpisodes.filter { downloadStates[it.id]?.isCompleted == false }
-        LibraryFilter.Downloaded ->
-            state.libraryEpisodes.filter { downloadStates[it.id]?.isCompleted == true }
-        LibraryFilter.All -> state.libraryEpisodes
+      remember(filter, state.libraryEpisodes, downloadStates) {
+        when (filter) {
+          LibraryFilter.ContinueListening ->
+              state.libraryEpisodes
+                  .filter { !it.isPlayed && it.lastPlayedEpochMs > 0 }
+                  .sortedByDescending { it.lastPlayedEpochMs }
+          LibraryFilter.Recent ->
+              state.libraryEpisodes
+                  .filter { it.isPlayed && it.lastPlayedEpochMs > 0 }
+                  .sortedByDescending { it.lastPlayedEpochMs }
+          LibraryFilter.Unplayed -> state.libraryEpisodes.filterNot { it.isPlayed }
+          LibraryFilter.Favorites -> state.libraryEpisodes.filter { it.isFavorite }
+          LibraryFilter.DownloadTasks ->
+              state.libraryEpisodes.filter { downloadStates[it.id]?.isCompleted == false }
+          LibraryFilter.Downloaded ->
+              state.libraryEpisodes.filter { downloadStates[it.id]?.isCompleted == true }
+          LibraryFilter.All -> state.libraryEpisodes
+        }
       }
   Column(Modifier.fillMaxSize().padding(12.dp)) {
     Text(stringResource(R.string.library), style = MaterialTheme.typography.headlineSmall)
