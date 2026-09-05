@@ -290,7 +290,9 @@ class CloudMemosApi @Inject constructor(private val client: OkHttpClient) {
   }
 
   private suspend fun execute(request: Request): CloudMemosResponse {
-    val response = client.newCall(request).await()
+    // Never let private memo data land in the shared HTTP disk cache.
+    val uncachedRequest = request.newBuilder().header("Cache-Control", "no-store").build()
+    val response = client.newCall(uncachedRequest).await()
     return response.use {
       if (!it.request.url.isHttps) throw InvalidCloudMemosUrlException()
       val body = requireNotNull(it.body)
@@ -381,12 +383,12 @@ class CloudMemosRepository
 constructor(
     @param:ApplicationContext private val context: Context,
     private val api: CloudMemosApi,
-) {
+) : CloudMemosGateway {
   private val cipher = CloudMemosCredentialCipher()
   private val baseUrlKey = stringPreferencesKey("base_url")
   private val encryptedTokenKey = stringPreferencesKey("encrypted_api_token")
 
-  val connection: Flow<CloudMemosConnection> =
+  override val connection: Flow<CloudMemosConnection> =
       context.cloudMemosStore.data.map { preferences ->
         CloudMemosConnection(
             baseUrl = preferences[baseUrlKey].orEmpty(),
@@ -422,19 +424,19 @@ constructor(
     withContext(Dispatchers.IO) { cipher.deleteKey() }
   }
 
-  suspend fun createMemo(
+  override suspend fun createMemo(
       content: String,
-      visibility: CloudMemoVisibility = CloudMemoVisibility.Private,
+      visibility: CloudMemoVisibility,
   ): Result<String> = runCatchingCancellable {
     val (baseUrl, token) = readCredentialsOrNull() ?: throw CloudMemosNotConfiguredException()
     api.createMemo(normalizeCloudMemosUrl(baseUrl), token, content, visibility)
   }
 
-  suspend fun listMemos(
-      query: String? = null,
-      tag: String? = null,
-      cursor: String? = null,
-      limit: Int = 20,
+  override suspend fun listMemos(
+      query: String?,
+      tag: String?,
+      cursor: String?,
+      limit: Int,
   ): Result<CloudMemoPage> = runCatchingCancellable {
     val (baseUrl, token) = readCredentialsOrNull() ?: throw CloudMemosNotConfiguredException()
     api.listMemos(
@@ -447,7 +449,7 @@ constructor(
     )
   }
 
-  suspend fun updateMemoState(
+  override suspend fun updateMemoState(
       memoId: String,
       version: Long,
       state: CloudMemoState,
@@ -462,7 +464,7 @@ constructor(
     )
   }
 
-  suspend fun deleteMemo(memoId: String): Result<Unit> = runCatchingCancellable {
+  override suspend fun deleteMemo(memoId: String): Result<Unit> = runCatchingCancellable {
     val (baseUrl, token) = readCredentialsOrNull() ?: throw CloudMemosNotConfiguredException()
     api.deleteMemo(normalizeCloudMemosUrl(baseUrl), token, memoId)
   }

@@ -10,23 +10,13 @@ import app.xpod.data.AppTab
 import app.xpod.data.ArticleEntity
 import app.xpod.data.ArticleFeedEntity
 import app.xpod.data.ArticlesReadChange
-import app.xpod.data.CloudMemo
 import app.xpod.data.CloudMemoDrafts
-import app.xpod.data.CloudMemoState
 import app.xpod.data.CloudMemoVisibility
 import app.xpod.data.CloudMemosConnection
-import app.xpod.data.CloudMemosHttpException
-import app.xpod.data.CloudMemosNotConfiguredException
-import app.xpod.data.CloudMemosProtocolException
-import app.xpod.data.CloudMemosRecycleBinUnsupportedException
 import app.xpod.data.CloudMemosRepository
 import app.xpod.data.DownloadRepository
 import app.xpod.data.EpisodeEntity
 import app.xpod.data.FeedHttpException
-import app.xpod.data.InvalidCloudMemosTokenException
-import app.xpod.data.InvalidCloudMemosUrlException
-import app.xpod.data.LocalMusicRepository
-import app.xpod.data.LocalTrackEntity
 import app.xpod.data.PlaybackMediaType
 import app.xpod.data.PodcastEntity
 import app.xpod.data.PodcastPlayedChange
@@ -42,16 +32,13 @@ import app.xpod.util.runCatchingCancellable
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.IOException
-import java.util.Locale
 import javax.inject.Inject
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -75,36 +62,6 @@ data class CloudMemosUiState(
     val baseUrl: String = "",
     val isConfigured: Boolean = false,
     val isBusy: Boolean = false,
-)
-
-data class MusicUiState(
-    val tracks: List<LocalTrackEntity> = emptyList(),
-    val visibleTracks: List<LocalTrackEntity> = emptyList(),
-    val selectedTreeUri: String? = null,
-    val query: String = "",
-    val isScanning: Boolean = false,
-)
-
-data class MemosUiState(
-    val items: List<CloudMemo> = emptyList(),
-    val draft: String = "",
-    val query: String = "",
-    val appliedQuery: String = "",
-    val selectedTag: String? = null,
-    val appliedTag: String? = null,
-    val knownTags: List<String> = emptyList(),
-    val visibility: CloudMemoVisibility = CloudMemoVisibility.Private,
-    val nextCursor: String? = null,
-    val hasLoaded: Boolean = false,
-    val isRefreshing: Boolean = false,
-    val isLoadingMore: Boolean = false,
-    val isCreating: Boolean = false,
-    val busyMemoIds: Set<String> = emptySet(),
-    val pendingPrivateShareMemoId: String? = null,
-    val pendingDeleteMemoId: String? = null,
-    val archivedMemoForUndo: CloudMemo? = null,
-    val archivedMemoUndoSequence: Long = 0,
-    val error: String? = null,
 )
 
 sealed interface BulkMarkRequest {
@@ -177,7 +134,6 @@ constructor(
     private val downloads: DownloadRepository,
     private val settings: SettingsRepository,
     private val cloudMemos: CloudMemosRepository,
-    private val localMusic: LocalMusicRepository,
     private val player: PlaybackController,
     @param:ApplicationContext private val context: Context,
 ) : ViewModel() {
@@ -185,46 +141,33 @@ constructor(
   private val status = MutableStateFlow<String?>(null)
   private val refreshingPodcasts = MutableStateFlow(false)
   private val refreshingArticles = MutableStateFlow(false)
-  private val musicQuery = MutableStateFlow("")
-  private val musicScanning = MutableStateFlow(false)
   private val cloudMemosBusy = MutableStateFlow(false)
-  private val _memosState = MutableStateFlow(MemosUiState())
   private val _bulkActionsState = MutableStateFlow(BulkActionsUiState())
   private var pendingBulkUndo: PendingBulkUndo? = null
   private var bulkEventSequence = 0L
-  private var memosLoadJob: Job? = null
-  private var memosCreateJob: Job? = null
-  private var musicScanJob: Job? = null
-  private val memosMutationJobs = mutableMapOf<String, Job>()
-  private var memosAccountGeneration = 0L
-  private var memosLoadGeneration = 0L
   @OptIn(ExperimentalCoroutinesApi::class)
   private val episodes = selected.flatMapLatest { id ->
     if (id == null) kotlinx.coroutines.flow.flowOf(emptyList()) else podcasts.episodes(id)
   }
+  private val libraryState =
+      combine(podcasts.podcasts(), selected, episodes, podcasts.allEpisodes()) {
+          all,
+          id,
+          items,
+          library ->
+        MainUiState(
+            podcasts = all,
+            newEpisodeCounts = library.filter { it.isNew }.groupingBy { it.podcastId }.eachCount(),
+            unplayedEpisodeCounts =
+                library.filterNot { it.isPlayed }.groupingBy { it.podcastId }.eachCount(),
+            selectedPodcastId = id,
+            episodes = items,
+            libraryEpisodes = library,
+        )
+      }
   private val podcastState =
-      combine(
-          combine(podcasts.podcasts(), selected, episodes, podcasts.allEpisodes(), status) {
-              all,
-              id,
-              items,
-              library,
-              message ->
-            MainUiState(
-                podcasts = all,
-                newEpisodeCounts =
-                    library.filter { it.isNew }.groupingBy { it.podcastId }.eachCount(),
-                unplayedEpisodeCounts =
-                    library.filterNot { it.isPlayed }.groupingBy { it.podcastId }.eachCount(),
-                selectedPodcastId = id,
-                episodes = items,
-                libraryEpisodes = library,
-                status = message,
-            )
-          },
-          refreshingPodcasts,
-      ) { base, refreshing ->
-        base.copy(isRefreshingPodcasts = refreshing)
+      combine(libraryState, refreshingPodcasts, status) { base, refreshing, message ->
+        base.copy(isRefreshingPodcasts = refreshing, status = message)
       }
   val state: StateFlow<MainUiState> =
       combine(podcastState, reader.feeds(), reader.articles(), refreshingArticles) {
@@ -262,35 +205,7 @@ constructor(
               SharingStarted.WhileSubscribed(5_000),
               CloudMemosUiState(),
           )
-  val memosState: StateFlow<MemosUiState> = _memosState
   val bulkActionsState: StateFlow<BulkActionsUiState> = _bulkActionsState
-  val musicState: StateFlow<MusicUiState> =
-      combine(localMusic.tracks, localMusic.treeUri, musicQuery, musicScanning) {
-              tracks,
-              treeUri,
-              query,
-              scanning ->
-            val normalizedQuery = query.trim()
-            MusicUiState(
-                tracks = tracks,
-                visibleTracks =
-                    if (normalizedQuery.isBlank()) tracks
-                    else
-                        tracks.filter {
-                          it.title.contains(normalizedQuery, ignoreCase = true) ||
-                              it.artist.contains(normalizedQuery, ignoreCase = true) ||
-                              it.album.contains(normalizedQuery, ignoreCase = true)
-                        },
-                selectedTreeUri = treeUri,
-                query = query,
-                isScanning = scanning,
-            )
-          }
-          .stateIn(
-              viewModelScope,
-              SharingStarted.WhileSubscribed(5_000),
-              MusicUiState(),
-          )
   val tabOrder: StateFlow<List<AppTab>> =
       settings.tabOrder.stateIn(
           viewModelScope,
@@ -309,7 +224,9 @@ constructor(
   val downloadStates = downloads.states
 
   init {
-    viewModelScope.launch { settings.useWifiOnlyDownloads.collect { downloads.setWifiOnly(it) } }
+    viewModelScope.launch {
+      runCatching { settings.useWifiOnlyDownloads.first() }.getOrNull()?.let(downloads::setWifiOnly)
+    }
   }
 
   fun selectPodcast(id: String?) {
@@ -605,103 +522,6 @@ constructor(
         .onFailure { status.value = context.getString(R.string.could_not_change_speed) }
   }
 
-  fun selectMusicFolder(uri: Uri) {
-    if (musicScanJob?.isActive == true) return
-    musicScanJob = viewModelScope.launch {
-      scanSelectedMusicFolder(uri)
-    }
-  }
-
-  private suspend fun scanSelectedMusicFolder(uri: Uri) {
-    musicScanning.value = true
-    try {
-      runCatchingCancellable { localMusic.selectTree(uri) }
-          .fold(
-              { count ->
-                runCatchingCancellable {
-                      player.removeMissingLocalTracks(localMusic.trackIds())
-                    }
-                    .onFailure { Log.w("XPOD", "Unable to clean the local music queue", it) }
-                status.value =
-                    context.resources.getQuantityString(
-                        R.plurals.local_tracks_scanned,
-                        count,
-                        count,
-                    )
-              },
-              {
-                Log.w("XPOD", "Unable to scan the selected music folder", it)
-                status.value = context.getString(R.string.local_music_scan_failed)
-              },
-          )
-    } finally {
-      musicScanning.value = false
-      musicScanJob = null
-    }
-  }
-
-  fun refreshLocalMusic() {
-    if (musicScanJob?.isActive == true) return
-    musicScanJob = viewModelScope.launch {
-      refreshSelectedMusicFolder()
-    }
-  }
-
-  private suspend fun refreshSelectedMusicFolder() {
-    musicScanning.value = true
-    try {
-      runCatchingCancellable { localMusic.refresh() }
-          .fold(
-              { count ->
-                runCatchingCancellable {
-                      player.removeMissingLocalTracks(localMusic.trackIds())
-                    }
-                    .onFailure { Log.w("XPOD", "Unable to clean the local music queue", it) }
-                status.value =
-                    context.resources.getQuantityString(
-                        R.plurals.local_tracks_scanned,
-                        count,
-                        count,
-                    )
-              },
-              {
-                Log.w("XPOD", "Unable to refresh local music", it)
-                status.value = context.getString(R.string.local_music_scan_failed)
-              },
-          )
-    } finally {
-      musicScanning.value = false
-      musicScanJob = null
-    }
-  }
-
-  fun cancelLocalMusicScan() {
-    if (musicScanJob?.isActive != true) return
-    musicScanJob?.cancel()
-    status.value = context.getString(R.string.local_music_scan_cancelled)
-  }
-
-  fun setMusicQuery(query: String) {
-    musicQuery.value = query
-  }
-
-  fun playMusic(tracks: List<LocalTrackEntity>, startTrackId: String) = viewModelScope.launch {
-    runCatchingCancellable { player.playMusic(tracks, startTrackId) }
-        .onFailure { status.value = context.getString(R.string.could_not_start_playback) }
-  }
-
-  fun playMusicNext(track: LocalTrackEntity) = viewModelScope.launch {
-    runCatchingCancellable { player.playNext(track) }
-        .onSuccess { status.value = context.getString(R.string.added_next) }
-        .onFailure { status.value = context.getString(R.string.could_not_update_queue) }
-  }
-
-  fun addMusicToQueue(track: LocalTrackEntity) = viewModelScope.launch {
-    runCatchingCancellable { player.addToQueue(track) }
-        .onSuccess { status.value = context.getString(R.string.added_to_queue) }
-        .onFailure { status.value = context.getString(R.string.could_not_update_queue) }
-  }
-
   fun skipToNext() = viewModelScope.launch {
     runCatchingCancellable { player.skipToNext() }
         .onFailure { status.value = context.getString(R.string.could_not_control_playback) }
@@ -810,6 +630,7 @@ constructor(
 
   fun setWifiOnlyDownloads(enabled: Boolean) = viewModelScope.launch {
     settings.setWifiOnlyDownloads(enabled)
+    downloads.setWifiOnly(enabled)
   }
 
   fun moveTab(tab: AppTab, offset: Int) = viewModelScope.launch {
@@ -824,12 +645,10 @@ constructor(
       viewModelScope.launch {
         if (cloudMemosBusy.value) return@launch
         cloudMemosBusy.value = true
-        cancelMemosOperations()
         try {
           runCatchingCancellable { cloudMemos.configure(baseUrl, token.ifBlank { null }) }
               .fold(
                   {
-                    _memosState.value = MemosUiState()
                     status.value = context.getString(R.string.cloud_memos_connected)
                     onSuccess()
                   },
@@ -837,7 +656,7 @@ constructor(
                     status.value =
                         context.getString(
                             R.string.cloud_memos_connection_failed_reason,
-                            cloudMemosFailureReason(error),
+                            memosFailureReason(error),
                         )
                   },
               )
@@ -849,10 +668,8 @@ constructor(
   fun disconnectCloudMemos() = viewModelScope.launch {
     if (cloudMemosBusy.value) return@launch
     cloudMemosBusy.value = true
-    cancelMemosOperations()
     try {
       cloudMemos.disconnect()
-      _memosState.value = MemosUiState()
       status.value = context.getString(R.string.cloud_memos_disconnected)
     } finally {
       cloudMemosBusy.value = false
@@ -865,367 +682,19 @@ constructor(
   fun saveArticleToCloudMemos(article: ArticleEntity, feedTitle: String?) =
       saveToCloudMemos(CloudMemoDrafts.article(article, feedTitle))
 
-  fun setMemoDraft(value: String) {
-    _memosState.value = _memosState.value.copy(draft = value.take(MAX_MEMO_CHARACTERS))
-  }
-
-  fun setMemoQuery(value: String) {
-    _memosState.value = _memosState.value.copy(query = value.take(MAX_MEMO_QUERY_CHARACTERS))
-  }
-
-  fun selectMemoTag(value: String?) {
-    val tag = value?.trim()?.take(MAX_MEMO_TAG_CHARACTERS)?.takeIf(String::isNotEmpty)
-    if (_memosState.value.selectedTag == tag) return
-    _memosState.value = _memosState.value.copy(selectedTag = tag)
-    startMemosLoad(reset = true)
-  }
-
-  fun setMemoVisibility(value: CloudMemoVisibility) {
-    _memosState.value = _memosState.value.copy(visibility = value)
-  }
-
-  fun requestPrivateMemoShare(memoId: String) {
-    val current = _memosState.value
-    if (
-        current.items.none { memo ->
-          memo.id == memoId && memo.visibility == CloudMemoVisibility.Private
-        }
-    ) {
-      return
-    }
-    _memosState.value = current.copy(pendingPrivateShareMemoId = memoId, pendingDeleteMemoId = null)
-  }
-
-  fun dismissPrivateMemoShare() {
-    if (_memosState.value.pendingPrivateShareMemoId == null) return
-    _memosState.value = _memosState.value.copy(pendingPrivateShareMemoId = null)
-  }
-
-  fun requestMemoDelete(memoId: String) {
-    val current = _memosState.value
-    if (memoId in current.busyMemoIds || current.items.none { it.id == memoId }) return
-    _memosState.value = current.copy(pendingDeleteMemoId = memoId, pendingPrivateShareMemoId = null)
-  }
-
-  fun dismissMemoDelete() {
-    if (_memosState.value.pendingDeleteMemoId == null) return
-    _memosState.value = _memosState.value.copy(pendingDeleteMemoId = null)
-  }
-
-  fun archiveMemo(memoId: String) {
-    val current = _memosState.value
-    val memo = current.items.firstOrNull { it.id == memoId } ?: return
-    if (
-        memo.state != CloudMemoState.Active ||
-            memoId in current.busyMemoIds ||
-            memosMutationJobs.containsKey(memoId)
-    ) {
-      return
-    }
-    _memosState.value =
-        current.copy(
-            busyMemoIds = current.busyMemoIds + memoId,
-            pendingPrivateShareMemoId =
-                current.pendingPrivateShareMemoId.takeUnless { it == memoId },
-            pendingDeleteMemoId = current.pendingDeleteMemoId.takeUnless { it == memoId },
-            error = null,
-        )
-    val accountGeneration = memosAccountGeneration
-    val job =
-        viewModelScope.launch(start = CoroutineStart.LAZY) {
-          val result =
-              cloudMemos.updateMemoState(
-                  memoId = memo.id,
-                  version = memo.version,
-                  state = CloudMemoState.Archived,
-              )
-          memosMutationJobs.remove(memoId)
-          if (accountGeneration != memosAccountGeneration) return@launch
-          result.fold(
-              { archivedMemo ->
-                val latest = _memosState.value
-                _memosState.value =
-                    latest.copy(
-                        items = latest.items.filterNot { it.id == memoId },
-                        busyMemoIds = latest.busyMemoIds - memoId,
-                        archivedMemoForUndo = archivedMemo,
-                        archivedMemoUndoSequence = latest.archivedMemoUndoSequence + 1,
-                    )
-                startMemosLoad(reset = true)
-              },
-              { error ->
-                handleMemoMutationFailure(memoId, error, R.string.cloud_memo_archive_failed_reason)
-              },
-          )
-        }
-    memosMutationJobs[memoId] = job
-    job.start()
-  }
-
-  fun restoreArchivedMemo(memoId: String) {
-    val current = _memosState.value
-    val memo = current.archivedMemoForUndo?.takeIf { it.id == memoId } ?: return
-    if (memoId in current.busyMemoIds || memosMutationJobs.containsKey(memoId)) return
-    _memosState.value = current.copy(busyMemoIds = current.busyMemoIds + memoId, error = null)
-    val accountGeneration = memosAccountGeneration
-    val job =
-        viewModelScope.launch(start = CoroutineStart.LAZY) {
-          val result =
-              cloudMemos.updateMemoState(
-                  memoId = memo.id,
-                  version = memo.version,
-                  state = CloudMemoState.Active,
-              )
-          memosMutationJobs.remove(memoId)
-          if (accountGeneration != memosAccountGeneration) return@launch
-          result.fold(
-              {
-                val latest = _memosState.value
-                _memosState.value =
-                    latest.copy(
-                        busyMemoIds = latest.busyMemoIds - memoId,
-                        archivedMemoForUndo =
-                            latest.archivedMemoForUndo?.takeUnless { it.id == memoId },
-                    )
-                status.value = context.getString(R.string.cloud_memo_archive_undone)
-                startMemosLoad(reset = true)
-              },
-              { error ->
-                val latest = _memosState.value
-                val isVersionConflict =
-                    error is CloudMemosHttpException && error.errorCode == "VERSION_CONFLICT"
-                _memosState.value = latest.afterArchiveRestoreFailure(memoId, isVersionConflict)
-                handleMemoMutationFailure(
-                    memoId,
-                    error,
-                    R.string.cloud_memo_restore_failed_reason,
-                )
-              },
-          )
-        }
-    memosMutationJobs[memoId] = job
-    job.start()
-  }
-
-  fun dismissArchivedMemoUndo(memoId: String) {
-    val current = _memosState.value
-    if (current.archivedMemoForUndo?.id != memoId) return
-    _memosState.value = current.copy(archivedMemoForUndo = null)
-  }
-
-  fun moveMemoToTrash(memoId: String) {
-    val current = _memosState.value
-    if (current.pendingDeleteMemoId != memoId) return
-    if (
-        current.items.none { it.id == memoId } ||
-            memoId in current.busyMemoIds ||
-            memosMutationJobs.containsKey(memoId)
-    ) {
-      return
-    }
-    _memosState.value =
-        current.copy(
-            busyMemoIds = current.busyMemoIds + memoId,
-            pendingDeleteMemoId = null,
-            error = null,
-        )
-    val accountGeneration = memosAccountGeneration
-    val job =
-        viewModelScope.launch(start = CoroutineStart.LAZY) {
-          val result = cloudMemos.deleteMemo(memoId)
-          memosMutationJobs.remove(memoId)
-          if (accountGeneration != memosAccountGeneration) return@launch
-          result.fold(
-              {
-                val latest = _memosState.value
-                _memosState.value =
-                    latest.copy(
-                        items = latest.items.filterNot { it.id == memoId },
-                        busyMemoIds = latest.busyMemoIds - memoId,
-                        pendingPrivateShareMemoId =
-                            latest.pendingPrivateShareMemoId.takeUnless { it == memoId },
-                    )
-                status.value = context.getString(R.string.cloud_memo_moved_to_trash)
-                startMemosLoad(reset = true)
-              },
-              { error ->
-                handleMemoMutationFailure(
-                    memoId,
-                    error,
-                    R.string.cloud_memo_delete_failed_reason,
-                )
-              },
-          )
-        }
-    memosMutationJobs[memoId] = job
-    job.start()
-  }
-
-  fun loadMemos() {
-    if (_memosState.value.hasLoaded) return
-    refreshMemos()
-  }
-
-  fun refreshMemos() = startMemosLoad(reset = true)
-
-  fun searchMemos() = startMemosLoad(reset = true)
-
-  fun loadMoreMemos() {
-    val current = _memosState.value
-    if (current.isRefreshing || current.isLoadingMore || current.nextCursor == null) return
-    startMemosLoad(reset = false)
-  }
-
-  fun createMemo() {
-    val current = _memosState.value
-    val content = current.draft.trim()
-    if (content.isEmpty() || current.isCreating) return
-    _memosState.value = current.copy(isCreating = true, error = null)
-    val accountGeneration = memosAccountGeneration
-    memosCreateJob = viewModelScope.launch {
-      val result = cloudMemos.createMemo(content, current.visibility)
-      if (accountGeneration != memosAccountGeneration) return@launch
-      result.fold(
-          {
-            _memosState.value = _memosState.value.copy(draft = "", isCreating = false)
-            status.value = context.getString(R.string.cloud_memos_saved)
-            startMemosLoad(reset = true)
-          },
-          { error ->
-            _memosState.value =
-                _memosState.value.copy(
-                    isCreating = false,
-                    error =
-                        context.getString(
-                            R.string.cloud_memos_save_failed_reason,
-                            cloudMemosFailureReason(error),
-                        ),
-                )
-          },
-      )
-    }
-  }
-
-  private fun startMemosLoad(reset: Boolean) {
-    memosLoadJob?.cancel()
-    val accountGeneration = memosAccountGeneration
-    val loadGeneration = ++memosLoadGeneration
-    _memosState.value = _memosState.value.copy(isRefreshing = false, isLoadingMore = false)
-    memosLoadJob = viewModelScope.launch { fetchMemos(reset, accountGeneration, loadGeneration) }
-  }
-
-  private suspend fun fetchMemos(
-      reset: Boolean,
-      accountGeneration: Long,
-      loadGeneration: Long,
-  ) {
-    val current = _memosState.value
-    if (current.isRefreshing || current.isLoadingMore) return
-    if (!reset && current.nextCursor == null) return
-    _memosState.value =
-        current.copy(
-            isRefreshing = reset,
-            isLoadingMore = !reset,
-            error = null,
-            nextCursor = if (reset) null else current.nextCursor,
-        )
-    val requestQuery = if (reset) current.query.trim() else current.appliedQuery
-    val requestTag = if (reset) current.selectedTag else current.appliedTag
-    val result =
-        cloudMemos.listMemos(
-            query = requestQuery.takeIf(String::isNotEmpty),
-            tag = requestTag,
-            cursor = if (reset) null else current.nextCursor,
-        )
-    if (accountGeneration != memosAccountGeneration || loadGeneration != memosLoadGeneration) {
-      return
-    }
-    result.fold(
-        { page ->
-          _memosState.value =
-              _memosState.value.copy(
-                  items =
-                      if (reset) page.items else (current.items + page.items).distinctBy { it.id },
-                  appliedQuery = if (reset) requestQuery else current.appliedQuery,
-                  appliedTag = if (reset) requestTag else current.appliedTag,
-                  knownTags =
-                      (_memosState.value.knownTags + page.items.flatMap { it.tags })
-                          .distinctBy { it.lowercase(Locale.ROOT) }
-                          .sortedBy { it.lowercase(Locale.ROOT) },
-                  nextCursor = page.nextCursor,
-                  hasLoaded = true,
-                  isRefreshing = false,
-                  isLoadingMore = false,
-                  pendingPrivateShareMemoId =
-                      if (reset) null else _memosState.value.pendingPrivateShareMemoId,
-                  pendingDeleteMemoId = if (reset) null else _memosState.value.pendingDeleteMemoId,
-              )
-        },
-        { error ->
-          _memosState.value =
-              _memosState.value.copy(
-                  isRefreshing = false,
-                  isLoadingMore = false,
-                  nextCursor = current.nextCursor,
-                  error =
-                      context.getString(
-                          R.string.cloud_memos_load_failed_reason,
-                          cloudMemosFailureReason(error),
-                      ),
-              )
-        },
-    )
-  }
-
-  private fun cancelMemosOperations() {
-    memosAccountGeneration++
-    memosLoadGeneration++
-    memosLoadJob?.cancel()
-    memosLoadJob = null
-    memosCreateJob?.cancel()
-    memosCreateJob = null
-    memosMutationJobs.values.forEach(Job::cancel)
-    memosMutationJobs.clear()
-    _memosState.value =
-        _memosState.value.copy(
-            isRefreshing = false,
-            isLoadingMore = false,
-            isCreating = false,
-            busyMemoIds = emptySet(),
-            pendingPrivateShareMemoId = null,
-            pendingDeleteMemoId = null,
-            archivedMemoForUndo = null,
-            archivedMemoUndoSequence = 0,
-        )
-  }
-
-  private fun handleMemoMutationFailure(memoId: String, error: Throwable, messageRes: Int) {
-    val latest = _memosState.value
-    _memosState.value = latest.copy(busyMemoIds = latest.busyMemoIds - memoId)
-    if (error is CloudMemosHttpException && error.errorCode == "VERSION_CONFLICT") {
-      status.value = context.getString(R.string.cloud_memo_version_conflict)
-      startMemosLoad(reset = true)
-    } else {
-      _memosState.value =
-          _memosState.value.copy(
-              error = context.getString(messageRes, cloudMemosFailureReason(error))
-          )
-    }
-  }
-
   private fun saveToCloudMemos(content: String) = viewModelScope.launch {
     if (cloudMemosBusy.value) return@launch
     cloudMemosBusy.value = true
     try {
       cloudMemos
-          .createMemo(content)
+          .createMemo(content, CloudMemoVisibility.Private)
           .fold(
               { status.value = context.getString(R.string.cloud_memos_saved) },
               { error ->
                 status.value =
                     context.getString(
                         R.string.cloud_memos_save_failed_reason,
-                        cloudMemosFailureReason(error),
+                        memosFailureReason(error),
                     )
               },
           )
@@ -1234,29 +703,11 @@ constructor(
     }
   }
 
-  private fun cloudMemosFailureReason(error: Throwable): String =
-      when (error) {
-        is InvalidCloudMemosUrlException ->
-            context.getString(R.string.cloud_memos_error_https_required)
-        is InvalidCloudMemosTokenException -> context.getString(R.string.cloud_memos_error_token)
-        is CloudMemosNotConfiguredException ->
-            context.getString(R.string.cloud_memos_error_not_configured)
-        is CloudMemosRecycleBinUnsupportedException ->
-            context.getString(R.string.cloud_memos_error_recycle_bin_required)
-        is CloudMemosHttpException ->
-            when {
-              error.statusCode == 401 || error.errorCode == "INVALID_API_TOKEN" ->
-                  context.getString(R.string.cloud_memos_error_unauthorized)
-              error.errorCode == "INSUFFICIENT_SCOPE" ->
-                  context.getString(R.string.cloud_memos_error_scope)
-              error.statusCode >= 500 ->
-                  context.getString(R.string.cloud_memos_error_server, error.statusCode)
-              else -> context.getString(R.string.cloud_memos_error_http, error.statusCode)
-            }
-        is CloudMemosProtocolException -> context.getString(R.string.cloud_memos_error_response)
-        is IOException -> context.getString(R.string.cloud_memos_error_network)
-        else -> context.getString(R.string.cloud_memos_error_response)
-      }
+  private fun memosFailureReason(error: Throwable): String =
+      cloudMemosFailureReason(
+          MemosStrings { resId, formatArgs -> context.getString(resId, *formatArgs) },
+          error,
+      )
 
   private fun feedFailureReason(error: Throwable): String =
       when (error) {
@@ -1267,29 +718,7 @@ constructor(
         is IllegalArgumentException -> context.getString(R.string.feed_error_format)
         else -> context.getString(R.string.feed_error_format)
       }
-
-  private companion object {
-    const val MAX_MEMO_CHARACTERS = 100_000
-    const val MAX_MEMO_QUERY_CHARACTERS = 100
-    const val MAX_MEMO_TAG_CHARACTERS = 80
-  }
 }
 
 private fun CloudMemosConnection.toUiState(isBusy: Boolean): CloudMemosUiState =
     CloudMemosUiState(baseUrl = baseUrl, isConfigured = isConfigured, isBusy = isBusy)
-
-internal fun MemosUiState.afterArchiveRestoreFailure(
-    memoId: String,
-    isVersionConflict: Boolean,
-): MemosUiState {
-  val isCurrentUndo = archivedMemoForUndo?.id == memoId
-  return copy(
-      archivedMemoForUndo = if (isVersionConflict && isCurrentUndo) null else archivedMemoForUndo,
-      archivedMemoUndoSequence =
-          if (!isVersionConflict && isCurrentUndo) {
-            archivedMemoUndoSequence + 1
-          } else {
-            archivedMemoUndoSequence
-          },
-  )
-}

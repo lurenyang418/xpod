@@ -2,12 +2,10 @@ package app.xpod.playback
 
 import android.content.Context
 import android.util.Log
-import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
-import androidx.media3.session.SessionToken
 import app.xpod.data.EpisodeEntity
 import app.xpod.data.LocalMusicRepository
 import app.xpod.data.LocalTrackEntity
@@ -24,12 +22,10 @@ import app.xpod.util.runCatchingCancellable
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.coroutines.resume
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,7 +35,6 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -81,9 +76,8 @@ constructor(
     private val podcasts: PodcastRepository,
     private val localMusic: LocalMusicRepository,
     private val settings: SettingsRepository,
+    @param:app.xpod.di.ApplicationScope private val scope: CoroutineScope,
 ) {
-  private var controller: MediaController? = null
-  private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
   private var progressJob: Job? = null
   private val _nowPlaying = MutableStateFlow<NowPlaying?>(null)
   val nowPlaying: StateFlow<NowPlaying?> = _nowPlaying.asStateFlow()
@@ -118,31 +112,30 @@ constructor(
                   PlaybackMediaType.fromStored(state?.mediaType ?: PlaybackMediaType.Podcast.name)
               val persistedItems = playbackRepository.queue(mediaType)
               val currentMediaId = state?.mediaId
-              val restoredItems =
-                  persistedItems
-                      .mapNotNull { resolve(it) }
-                      .ifEmpty {
-                        currentMediaId
-                            ?.let { resolve(PlaybackReference(it, mediaType)) }
-                            ?.let(::listOf)
-                            .orEmpty()
+              val persistedMediaIds = persistedItems.map { it.mediaId }
+              val idsToResolve =
+                  persistedMediaIds +
+                      listOfNotNull(currentMediaId).filterNot {
+                        it in persistedMediaIds
                       }
-              val currentIndex = restoredItems.indexOfFirst { it.id == currentMediaId }
-              val items =
-                  if (mediaType == PlaybackMediaType.Podcast)
-                      restoredItems.moveItemToFront(currentIndex)
-                  else restoredItems
+              val resolvedById =
+                  idsToResolve
+                      .mapNotNull { id ->
+                        resolve(PlaybackReference(id, mediaType))?.let { it.id to it }
+                      }
+                      .toMap()
+              val restored =
+                  assembleRestoredQueue(persistedMediaIds, resolvedById, mediaType, currentMediaId)
               withContext(Dispatchers.Main.immediate) {
                 playbackMutationMutex.withLock {
                   if (!restoredQueueApplied) {
                     _queue.value =
-                        PlaybackQueue(
-                            items,
-                            currentMediaId?.takeIf { id -> items.any { it.id == id } },
-                            mediaType.takeIf { items.isNotEmpty() },
-                        )
-                    if (items.map(PlaybackItem::id) != persistedItems.map { it.mediaId }) {
-                      playbackRepository.replaceQueue(mediaType, items.map(PlaybackItem::id))
+                        PlaybackQueue(restored.items, restored.currentMediaId, restored.mediaType)
+                    if (restored.needsPersist) {
+                      playbackRepository.replaceQueue(
+                          mediaType,
+                          restored.items.map(PlaybackItem::id),
+                      )
                     }
                   }
                 }
@@ -162,89 +155,60 @@ constructor(
     }
   }
 
-  private suspend fun controller(): MediaController =
-      controller
-          ?: suspendCancellableCoroutine { continuation ->
-            val token = SessionToken(context, PlaybackService.component(context))
-            val future =
-                MediaController.Builder(context, token)
-                    .setListener(
-                        object : MediaController.Listener {
-                          override fun onDisconnected(mediaController: MediaController) {
-                            if (controller === mediaController) {
-                              controller = null
-                              progressJob?.cancel()
-                              progressJob = null
-                              _nowPlaying.value =
-                                  _nowPlaying.value?.copy(status = PlaybackStatus.Error)
-                            }
-                          }
-                        }
-                    )
-                    .buildAsync()
-            future.addListener(
-                {
-                  runCatching { future.get() }
-                      .onSuccess { created ->
-                        if (!continuation.isActive) {
-                          created.release()
-                          return@onSuccess
-                        }
-                        controller = created
-                        applyPlaybackSettings(
-                            created,
-                            _queue.value.mediaType,
-                            _musicPlaybackSettings.value,
-                        )
-                        created.addListener(
-                            object : Player.Listener {
-                              override fun onEvents(player: Player, events: Player.Events) {
-                                _nowPlaying.value =
-                                    _nowPlaying.value?.copy(status = player.playbackStatus())
-                                if (
-                                    events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) &&
-                                        _queue.value.mediaType == PlaybackMediaType.Podcast &&
-                                        shouldClearCompletedQueue(
-                                            player.playbackState,
-                                            player.currentMediaItemIndex,
-                                            player.mediaItemCount,
-                                        )
-                                ) {
-                                  scope.launch {
-                                    playbackMutationMutex.withLock {
-                                      clearCompletedQueue(created)
-                                    }
-                                  }
-                                }
-                              }
+  private val mediaControllerHolder =
+      MediaControllerHolder(
+          context,
+          readInitialPlaybackState = { _queue.value.mediaType to _musicPlaybackSettings.value },
+          sink =
+              object : PlayerEventSink {
+                override fun onPlayerEvents(player: MediaController, events: Player.Events) {
+                  _nowPlaying.value = _nowPlaying.value?.copy(status = player.playbackStatus())
+                  if (
+                      events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) &&
+                          _queue.value.mediaType == PlaybackMediaType.Podcast &&
+                          shouldClearCompletedQueue(
+                              player.playbackState,
+                              player.currentMediaItemIndex,
+                              player.mediaItemCount,
+                          )
+                  ) {
+                    scope.launch {
+                      playbackMutationMutex.withLock { clearCompletedQueue(player) }
+                    }
+                  }
+                }
 
-                              override fun onPlaybackParametersChanged(
-                                  playbackParameters: androidx.media3.common.PlaybackParameters
-                              ) {
-                                _nowPlaying.value =
-                                    _nowPlaying.value?.copy(speed = playbackParameters.speed)
-                              }
+                override fun onPlaybackParametersChanged(
+                    parameters: androidx.media3.common.PlaybackParameters
+                ) {
+                  _nowPlaying.value = _nowPlaying.value?.copy(speed = parameters.speed)
+                }
 
-                              override fun onMediaItemTransition(
-                                  mediaItem: MediaItem?,
-                                  reason: Int,
-                              ) {
-                                scope.launch {
-                                  playbackMutationMutex.withLock {
-                                    handleMediaItemTransition(created, mediaItem, reason)
-                                  }
-                                }
-                              }
-                            }
-                        )
-                        continuation.resume(created)
-                      }
-                      .onFailure { if (continuation.isActive) continuation.cancel(it) }
-                },
-                ContextCompat.getMainExecutor(context),
-            )
-            continuation.invokeOnCancellation { future.cancel(true) }
-          }
+                override fun onMediaItemTransition(
+                    player: MediaController,
+                    mediaItem: MediaItem?,
+                    reason: Int,
+                ) {
+                  scope.launch {
+                    playbackMutationMutex.withLock {
+                      handleMediaItemTransition(player, mediaItem, reason)
+                    }
+                  }
+                }
+
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                  if (isPlaying) startProgressUpdates()
+                }
+
+                override fun onControllerDisconnected() {
+                  progressJob?.cancel()
+                  progressJob = null
+                  _nowPlaying.value = _nowPlaying.value?.copy(status = PlaybackStatus.Error)
+                }
+              },
+      )
+
+  private suspend fun controller(): MediaController = mediaControllerHolder.controller()
 
   suspend fun play(episode: EpisodeEntity) = playbackMutationMutex.withLock {
     restoredQueueApplied = true
@@ -619,7 +583,9 @@ constructor(
     if (_musicPlaybackSettings.value == playbackSettings) return
     _musicPlaybackSettings.value = playbackSettings
     if (_queue.value.mediaType == PlaybackMediaType.Music) {
-      controller?.let { applyPlaybackSettings(it, PlaybackMediaType.Music, playbackSettings) }
+      mediaControllerHolder.connected?.let {
+        applyPlaybackSettings(it, PlaybackMediaType.Music, playbackSettings)
+      }
     }
   }
 
@@ -743,19 +709,20 @@ constructor(
     progressJob?.cancel()
     progressJob = scope.launch {
       while (isActive) {
-        controller?.let(::updateProgress)
-        delay(500)
+        val player = mediaControllerHolder.connected
+        if (player == null || !player.isPlaying) return@launch
+        updateProgress(player)
+        delay(PROGRESS_POLL_INTERVAL_MS)
       }
     }
   }
 
   private fun updateProgress(player: MediaController) {
     val current = _nowPlaying.value ?: return
-    _nowPlaying.value =
-        current.copy(
-            positionMs = player.currentPosition.coerceAtLeast(0L),
-            durationMs = playbackDuration(player.duration, current.item.durationMs),
-        )
+    val positionMs = player.currentPosition.coerceAtLeast(0L)
+    val durationMs = playbackDuration(player.duration, current.item.durationMs)
+    if (current.positionMs == positionMs && current.durationMs == durationMs) return
+    _nowPlaying.value = current.copy(positionMs = positionMs, durationMs = durationMs)
   }
 
   private suspend fun insertIntoQueue(
@@ -855,3 +822,5 @@ internal fun Int.toMusicRepeatMode(): MusicRepeatMode =
 
 internal fun playbackDuration(playerDurationMs: Long, itemDurationMs: Long?): Long =
     playerDurationMs.takeIf { it > 0L } ?: itemDurationMs?.takeIf { it > 0L } ?: 0L
+
+private const val PROGRESS_POLL_INTERVAL_MS = 500L

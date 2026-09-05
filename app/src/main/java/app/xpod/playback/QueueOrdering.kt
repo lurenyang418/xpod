@@ -1,6 +1,8 @@
 package app.xpod.playback
 
 import androidx.media3.common.Player
+import app.xpod.data.PlaybackItem
+import app.xpod.data.PlaybackMediaType
 
 internal fun <T> List<T>.moveItemToFront(index: Int): List<T> {
   if (index !in indices || index == 0) return this
@@ -71,3 +73,41 @@ internal fun shouldClearCompletedQueue(
 
 internal fun Player.playbackStatus(): PlaybackStatus =
     playbackStatus(playbackState, playWhenReady, isPlaying, playerError != null)
+
+internal data class RestoredQueue(
+    val items: List<PlaybackItem>,
+    val currentMediaId: String?,
+    val mediaType: PlaybackMediaType?,
+    val needsPersist: Boolean,
+)
+
+/**
+ * Assembles the persisted queue back into the active queue model.
+ *
+ * - Keeps persisted order but moves the current item to the front for podcasts.
+ * - Falls back to the single saved current item when nothing persisted resolves.
+ * - Reports [RestoredQueue.needsPersist] when the assembled order differs from what is stored.
+ */
+internal fun assembleRestoredQueue(
+    persistedMediaIds: List<String>,
+    resolvedById: Map<String, PlaybackItem>,
+    storedMediaType: PlaybackMediaType,
+    currentMediaId: String?,
+): RestoredQueue {
+  val restoredFromPersistence = buildList {
+    persistedMediaIds.forEach { id -> resolvedById[id]?.let { add(it) } }
+  }
+  val restoredItems =
+      if (restoredFromPersistence.isNotEmpty()) restoredFromPersistence
+      else currentMediaId?.let { resolvedById[it] }?.let(::listOf).orEmpty()
+  val currentIndex = restoredItems.indexOfFirst { it.id == currentMediaId }
+  val items =
+      if (storedMediaType == PlaybackMediaType.Podcast) restoredItems.moveItemToFront(currentIndex)
+      else restoredItems
+  return RestoredQueue(
+      items = items,
+      currentMediaId = currentMediaId?.takeIf { id -> items.any { it.id == id } },
+      mediaType = storedMediaType.takeIf { items.isNotEmpty() },
+      needsPersist = items.map { it.id } != persistedMediaIds,
+  )
+}
