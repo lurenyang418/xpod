@@ -1,6 +1,7 @@
 package app.xpod.data
 
-import app.xpod.di.AppModule
+import app.xpod.di.buildHttpClient
+import java.io.File
 import java.io.IOException
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
@@ -12,7 +13,8 @@ import org.junit.Test
 class FeedFetcherTest {
   @Test
   fun productionClientDoesNotFollowCrossProtocolRedirects() {
-    assertFalse(AppModule.httpClient().followSslRedirects)
+    val client = buildHttpClient(File(System.getProperty("java.io.tmpdir")))
+    assertFalse(client.followSslRedirects)
   }
 
   @Test
