@@ -20,6 +20,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.AddLink
 import androidx.compose.material.icons.filled.ArrowDownward
@@ -60,6 +61,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import app.xpod.BuildConfig
 import app.xpod.R
 import app.xpod.data.AppTab
 import app.xpod.data.ThemeMode
@@ -79,6 +81,7 @@ internal fun SettingsScreen(
     exportOpml: (Uri) -> Unit,
     configureCloudMemos: (String, String, () -> Unit) -> Unit,
     disconnectCloudMemos: () -> Unit,
+    openReleases: () -> Unit,
     tabOrder: List<AppTab>,
     enabledTabs: Set<AppTab>,
     moveTab: (AppTab, Int) -> Unit,
@@ -219,6 +222,26 @@ internal fun SettingsScreen(
                   if (cloudMemos.isConfigured) R.string.manage_connection
                   else R.string.cloud_memos_connect
               )
+          )
+        }
+      }
+    }
+    item {
+      Row(
+          modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Text(
+            stringResource(R.string.current_version, BuildConfig.VERSION_NAME),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+        )
+        TextButton(onClick = openReleases) {
+          Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
+          Text(
+              stringResource(R.string.view_releases),
+              modifier = Modifier.padding(start = 8.dp),
           )
         }
       }

@@ -8,6 +8,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.PersistableBundle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -640,6 +641,16 @@ private fun XpodHome(
               exportOpml = viewModel::exportOpml,
               configureCloudMemos = viewModel::configureCloudMemos,
               disconnectCloudMemos = viewModel::disconnectCloudMemos,
+              openReleases = {
+                if (!openExternalUrl(context, XPOD_RELEASES_URL)) {
+                  coroutineScope.launch {
+                    snackbar.showXpodSnackbar(
+                        resources.getString(R.string.release_page_unavailable),
+                        StatusSeverity.Error,
+                    )
+                  }
+                }
+              },
               tabOrder = tabOrder,
               enabledTabs = enabledTabs,
               moveTab = viewModel::moveTab,
@@ -679,9 +690,10 @@ private fun XpodHome(
             onShowSpeedPicker = showSpeedPickerAction,
         )
       },
+      snackbarHost = { XpodSnackbarHost(snackbar) },
   ) { padding ->
-    Column(Modifier.fillMaxSize().padding(padding)) {
-      Row(Modifier.fillMaxWidth().weight(1f)) {
+    Box(Modifier.fillMaxSize().padding(padding)) {
+      Row(Modifier.fillMaxSize()) {
         if (wide && selectedArticleId == null && !fullPlayer)
             NavigationRail {
               visibleTabs.forEach { item ->
@@ -698,60 +710,6 @@ private fun XpodHome(
               }
             }
         key(contentRouteId) { content() }
-      }
-      Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Box(Modifier.widthIn(max = 480.dp).padding(horizontal = 16.dp, vertical = 12.dp)) {
-          SnackbarHost(snackbar, Modifier.fillMaxWidth()) { data ->
-            val isError = (data.visuals as? XpodSnackbarVisuals)?.severity == StatusSeverity.Error
-            val containerColor =
-                if (isError) MaterialTheme.colorScheme.errorContainer
-                else MaterialTheme.colorScheme.surfaceContainerHigh
-            val contentColor =
-                if (isError) MaterialTheme.colorScheme.onErrorContainer
-                else MaterialTheme.colorScheme.onSurface
-            val actionColor =
-                if (isError) MaterialTheme.colorScheme.onErrorContainer
-                else MaterialTheme.colorScheme.primary
-            Snackbar(
-                containerColor = containerColor,
-                contentColor = contentColor,
-                actionContentColor = actionColor,
-                dismissActionContentColor = contentColor,
-                action =
-                    data.visuals.actionLabel?.let { label ->
-                      {
-                        TextButton(
-                            onClick = data::performAction,
-                            colors = ButtonDefaults.textButtonColors(contentColor = actionColor),
-                        ) {
-                          Text(label)
-                        }
-                      }
-                    },
-                dismissAction =
-                    if (data.visuals.withDismissAction) {
-                      {
-                        IconButton(onClick = data::dismiss) {
-                          Icon(Icons.Filled.Close, stringResource(R.string.dismiss_snackbar))
-                        }
-                      }
-                    } else {
-                      null
-                    },
-            ) {
-              Row(verticalAlignment = Alignment.CenterVertically) {
-                if (isError) {
-                  Icon(
-                      Icons.Filled.ErrorOutline,
-                      contentDescription = null,
-                      modifier = Modifier.padding(end = 8.dp),
-                  )
-                }
-                Text(data.visuals.message)
-              }
-            }
-          }
-        }
       }
     }
   }
@@ -823,6 +781,64 @@ private fun XpodHome(
       onConfirm = viewModel::confirmBulkMark,
       onDismiss = viewModel::dismissBulkMarkRequest,
   )
+}
+
+@Composable
+private fun XpodSnackbarHost(snackbar: SnackbarHostState) {
+  Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+    Box(Modifier.widthIn(max = 480.dp).padding(horizontal = 16.dp, vertical = 12.dp)) {
+      SnackbarHost(snackbar, Modifier.fillMaxWidth()) { data ->
+        val isError = (data.visuals as? XpodSnackbarVisuals)?.severity == StatusSeverity.Error
+        val containerColor =
+            if (isError) MaterialTheme.colorScheme.errorContainer
+            else MaterialTheme.colorScheme.surfaceContainerHigh
+        val contentColor =
+            if (isError) MaterialTheme.colorScheme.onErrorContainer
+            else MaterialTheme.colorScheme.onSurface
+        val actionColor =
+            if (isError) MaterialTheme.colorScheme.onErrorContainer
+            else MaterialTheme.colorScheme.primary
+        Snackbar(
+            containerColor = containerColor,
+            contentColor = contentColor,
+            actionContentColor = actionColor,
+            dismissActionContentColor = contentColor,
+            action =
+                data.visuals.actionLabel?.let { label ->
+                  {
+                    TextButton(
+                        onClick = data::performAction,
+                        colors = ButtonDefaults.textButtonColors(contentColor = actionColor),
+                    ) {
+                      Text(label)
+                    }
+                  }
+                },
+            dismissAction =
+                if (data.visuals.withDismissAction) {
+                  {
+                    IconButton(onClick = data::dismiss) {
+                      Icon(Icons.Filled.Close, stringResource(R.string.dismiss_snackbar))
+                    }
+                  }
+                } else {
+                  null
+                },
+        ) {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            if (isError) {
+              Icon(
+                  Icons.Filled.ErrorOutline,
+                  contentDescription = null,
+                  modifier = Modifier.padding(end = 8.dp),
+              )
+            }
+            Text(data.visuals.message)
+          }
+        }
+      }
+    }
+  }
 }
 
 private data class XpodSnackbarVisuals(
@@ -1113,6 +1129,18 @@ private fun shareText(context: Context, text: String, chooserTitle: String): Boo
     } catch (_: SecurityException) {
       false
     }
+
+private fun openExternalUrl(context: Context, url: String): Boolean =
+    try {
+      context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+      true
+    } catch (_: ActivityNotFoundException) {
+      false
+    } catch (_: SecurityException) {
+      false
+    }
+
+private const val XPOD_RELEASES_URL = "https://github.com/lurenyang418/xpod/releases"
 
 @Composable
 private fun DestinationIcon(destination: AppTab) =
