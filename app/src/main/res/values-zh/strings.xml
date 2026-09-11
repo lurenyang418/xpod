@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name">XPOD</string>
+    <string name="dismiss_snackbar">关闭通知</string>
     <string name="subscriptions">订阅</string>
     <string name="podcasts">播客</string>
     <string name="library">资料库</string>
@@ -27,7 +28,6 @@
     <string name="no_articles_match">没有符合当前筛选条件的文章</string>
     <string name="no_article_content">此订阅源未提供文章正文。</string>
     <string name="refresh_articles">刷新文章</string>
-    <string name="article_feeds_refreshed">文章已刷新</string>
     <string name="open_original">打开原文</string>
     <string name="back_to_reader">返回阅读列表</string>
     <string name="open_in_browser">在浏览器中打开</string>
@@ -44,7 +44,6 @@
     <string name="unknown_author">未知作者</string>
     <string name="refresh_feed">刷新订阅源</string>
     <string name="refresh_all_podcasts">刷新全部播客</string>
-    <string name="podcasts_refreshed">播客已刷新</string>
     <plurals name="podcasts_refreshed_with_failures">
         <item quantity="other">已刷新 %1$d/%2$d 个播客（%3$d 个失败）</item>
     </plurals>

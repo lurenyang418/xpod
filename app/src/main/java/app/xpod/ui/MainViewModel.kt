@@ -55,7 +55,7 @@ data class MainUiState(
     val articleFeeds: List<ArticleFeedEntity> = emptyList(),
     val articles: List<ArticleEntity> = emptyList(),
     val isRefreshingArticles: Boolean = false,
-    val status: String? = null,
+    val status: UiStatus? = null,
 )
 
 data class CloudMemosUiState(
@@ -138,7 +138,7 @@ constructor(
     @param:ApplicationContext private val context: Context,
 ) : ViewModel() {
   private val selected = MutableStateFlow<String?>(null)
-  private val status = MutableStateFlow<String?>(null)
+  private val status = MutableStateFlow<UiStatus?>(null)
   private val refreshingPodcasts = MutableStateFlow(false)
   private val refreshingArticles = MutableStateFlow(false)
   private val cloudMemosBusy = MutableStateFlow(false)
@@ -239,17 +239,17 @@ constructor(
         .onSuccess { removedEpisodeIds ->
           player.removeDeletedEpisodes(removedEpisodeIds)
           if (selected.value == id) selected.value = null
-          status.value = context.getString(R.string.subscription_removed)
+          showStatus(context.getString(R.string.subscription_removed))
         }
         .onFailure { error ->
           Log.e("XPOD", "Unable to remove podcast subscription", error)
-          status.value = context.getString(R.string.could_not_remove_subscription)
+          showError(context.getString(R.string.could_not_remove_subscription))
         }
   }
 
   fun removeArticleFeed(id: String) = viewModelScope.launch {
     reader.remove(id)
-    status.value = context.getString(R.string.subscription_removed)
+    showStatus(context.getString(R.string.subscription_removed))
   }
 
   fun requestPodcastMarkAllPlayed(podcastId: String) {
@@ -321,7 +321,7 @@ constructor(
                 Log.e("XPOD", "Unable to mark items in bulk", error)
                 _bulkActionsState.value =
                     _bulkActionsState.value.copy(isBusy = false, undoEvent = null)
-                status.value = context.getString(R.string.could_not_mark_all)
+                showError(context.getString(R.string.could_not_mark_all))
               },
           )
     }
@@ -343,7 +343,7 @@ constructor(
                 pendingBulkUndo = null
                 _bulkActionsState.value =
                     _bulkActionsState.value.copy(isBusy = false, undoEvent = null)
-                status.value = context.getString(R.string.bulk_mark_undone)
+                showStatus(context.getString(R.string.bulk_mark_undone))
               },
               { error ->
                 Log.e("XPOD", "Unable to undo bulk status change", error)
@@ -360,7 +360,7 @@ constructor(
                 pendingBulkUndo = PendingBulkUndo(retryEvent.id, pending.change)
                 _bulkActionsState.value =
                     _bulkActionsState.value.copy(isBusy = false, undoEvent = retryEvent)
-                status.value = context.getString(R.string.could_not_undo_bulk_mark)
+                showError(context.getString(R.string.could_not_undo_bulk_mark))
               },
           )
     }
@@ -377,16 +377,17 @@ constructor(
         .addOrRefresh(url)
         .fold(
             {
-              status.value = context.getString(R.string.added_and_refreshed)
+              showStatus(context.getString(R.string.added_and_refreshed))
               onSuccess()
             },
             { error ->
               Log.e("XPOD", "Unable to add feed", error)
-              status.value =
+              showError(
                   context.getString(
                       R.string.could_not_add_feed_reason,
                       feedFailureReason(error),
                   )
+              )
             },
         )
   }
@@ -396,7 +397,7 @@ constructor(
     refreshingPodcasts.value = true
     try {
       podcasts.addOrRefresh(feedUrl).onFailure {
-        status.value = context.getString(R.string.could_not_refresh_feed)
+        showError(context.getString(R.string.could_not_refresh_feed))
       }
     } finally {
       refreshingPodcasts.value = false
@@ -408,11 +409,9 @@ constructor(
     refreshingPodcasts.value = true
     try {
       val result = podcasts.refreshAll()
-      status.value =
-          if (result.failureCount == 0) {
-            context.getString(R.string.podcasts_refreshed)
-          } else {
-            val total = result.refreshedCount + result.failureCount
+      if (result.failureCount > 0) {
+        val total = result.refreshedCount + result.failureCount
+        showError(
             context.resources.getQuantityString(
                 R.plurals.podcasts_refreshed_with_failures,
                 total,
@@ -420,7 +419,8 @@ constructor(
                 total,
                 result.failureCount,
             )
-          }
+        )
+      }
     } finally {
       refreshingPodcasts.value = false
     }
@@ -435,11 +435,9 @@ constructor(
       val urls = feedUrl?.let(::listOf) ?: reader.allFeeds().map(ArticleFeedEntity::feedUrl)
       val failures = reader.refresh(urls)
       failures.forEach { Log.w("XPOD", "Unable to refresh article feed", it) }
-      status.value =
-          context.getString(
-              if (failures.isEmpty()) R.string.article_feeds_refreshed
-              else R.string.could_not_refresh_feed
-          )
+      if (failures.isNotEmpty()) {
+        showError(context.getString(R.string.could_not_refresh_feed))
+      }
     } finally {
       refreshingArticles.value = false
     }
@@ -458,34 +456,34 @@ constructor(
   fun download(episode: EpisodeEntity) {
     if (downloads.states.value[episode.id]?.isCompleted == true) {
       downloads.remove(episode.id)
-      status.value = context.getString(R.string.download_removed)
+      showStatus(context.getString(R.string.download_removed))
     } else if (downloads.states.value[episode.id]?.phase == app.xpod.data.DownloadPhase.Failed) {
       downloads
           .retry(episode)
           .fold(
-              { status.value = context.getString(R.string.download_queued) },
-              { status.value = context.getString(R.string.could_not_download) },
+              { showStatus(context.getString(R.string.download_queued)) },
+              { showError(context.getString(R.string.could_not_download)) },
           )
     } else if (downloads.states.value[episode.id] != null) {
-      status.value = context.getString(R.string.download_in_progress)
+      showStatus(context.getString(R.string.download_in_progress))
     } else
         downloads
             .enqueue(episode)
             .fold(
-                { status.value = context.getString(R.string.download_queued) },
-                { status.value = context.getString(R.string.could_not_download) },
+                { showStatus(context.getString(R.string.download_queued)) },
+                { showError(context.getString(R.string.could_not_download)) },
             )
   }
 
   fun removeDownload(episodeId: String) {
     downloads.remove(episodeId)
-    status.value = context.getString(R.string.download_removed)
+    showStatus(context.getString(R.string.download_removed))
   }
 
   fun play(episode: EpisodeEntity) = viewModelScope.launch {
     val result = runCatchingCancellable { player.play(episode) }
     if (result.isFailure) {
-      status.value = context.getString(R.string.could_not_start_playback)
+      showError(context.getString(R.string.could_not_start_playback))
     } else {
       runCatchingCancellable { podcasts.recordPlayback(episode.id) }
           .onFailure { Log.w("XPOD", "Unable to record playback", it) }
@@ -495,7 +493,7 @@ constructor(
   fun playQueueItem(mediaId: String) = viewModelScope.launch {
     val result = runCatchingCancellable { player.playQueueItem(mediaId) }
     if (result.isFailure) {
-      status.value = context.getString(R.string.could_not_start_playback)
+      showError(context.getString(R.string.could_not_start_playback))
     } else if (PlaybackMediaType.fromMediaId(mediaId) == PlaybackMediaType.Podcast) {
       runCatchingCancellable { podcasts.recordPlayback(mediaId) }
           .onFailure { Log.w("XPOD", "Unable to record playback", it) }
@@ -504,54 +502,54 @@ constructor(
 
   fun togglePlayback() = viewModelScope.launch {
     runCatchingCancellable { player.toggle() }
-        .onFailure { status.value = context.getString(R.string.could_not_control_playback) }
+        .onFailure { showError(context.getString(R.string.could_not_control_playback)) }
   }
 
   fun seekTo(positionMs: Long) = viewModelScope.launch {
     runCatchingCancellable { player.seekTo(positionMs) }
-        .onFailure { status.value = context.getString(R.string.could_not_seek_playback) }
+        .onFailure { showError(context.getString(R.string.could_not_seek_playback)) }
   }
 
   fun seekBy(deltaMs: Long) = viewModelScope.launch {
     runCatchingCancellable { player.seekBy(deltaMs) }
-        .onFailure { status.value = context.getString(R.string.could_not_seek_playback) }
+        .onFailure { showError(context.getString(R.string.could_not_seek_playback)) }
   }
 
   fun setPlaybackSpeed(speed: Float) = viewModelScope.launch {
     runCatchingCancellable { player.setSpeed(speed) }
-        .onFailure { status.value = context.getString(R.string.could_not_change_speed) }
+        .onFailure { showError(context.getString(R.string.could_not_change_speed)) }
   }
 
   fun skipToNext() = viewModelScope.launch {
     runCatchingCancellable { player.skipToNext() }
-        .onFailure { status.value = context.getString(R.string.could_not_control_playback) }
+        .onFailure { showError(context.getString(R.string.could_not_control_playback)) }
   }
 
   fun skipToPrevious() = viewModelScope.launch {
     runCatchingCancellable { player.skipToPrevious() }
-        .onFailure { status.value = context.getString(R.string.could_not_control_playback) }
+        .onFailure { showError(context.getString(R.string.could_not_control_playback)) }
   }
 
   fun toggleMusicShuffle() = viewModelScope.launch {
     runCatchingCancellable { player.toggleMusicShuffle() }
-        .onFailure { status.value = context.getString(R.string.could_not_change_playback_mode) }
+        .onFailure { showError(context.getString(R.string.could_not_change_playback_mode)) }
   }
 
   fun cycleMusicRepeatMode() = viewModelScope.launch {
     runCatchingCancellable { player.cycleMusicRepeatMode() }
-        .onFailure { status.value = context.getString(R.string.could_not_change_playback_mode) }
+        .onFailure { showError(context.getString(R.string.could_not_change_playback_mode)) }
   }
 
   fun playNext(episode: EpisodeEntity) = viewModelScope.launch {
     runCatchingCancellable { player.playNext(episode) }
-        .onSuccess { status.value = context.getString(R.string.added_next) }
-        .onFailure { status.value = context.getString(R.string.could_not_update_queue) }
+        .onSuccess { showStatus(context.getString(R.string.added_next)) }
+        .onFailure { showError(context.getString(R.string.could_not_update_queue)) }
   }
 
   fun addToQueue(episode: EpisodeEntity) = viewModelScope.launch {
     runCatchingCancellable { player.addToQueue(episode) }
-        .onSuccess { status.value = context.getString(R.string.added_to_queue) }
-        .onFailure { status.value = context.getString(R.string.could_not_update_queue) }
+        .onSuccess { showStatus(context.getString(R.string.added_to_queue)) }
+        .onFailure { showError(context.getString(R.string.could_not_update_queue)) }
   }
 
   fun removeFromQueue(mediaId: String) = viewModelScope.launch {
@@ -577,7 +575,7 @@ constructor(
             Log.w("XPOD", "Unable to import ${failure.url}", failure.error)
           }
           val insecureFailures = report.failures.count { it.error is UnsupportedFeedUrlException }
-          status.value =
+          val message =
               when {
                 report.failures.isEmpty() ->
                     context.resources.getQuantityString(
@@ -603,10 +601,11 @@ constructor(
                         report.failures.size,
                     )
               }
+          if (report.failures.isEmpty()) showStatus(message) else showError(message)
         },
         { error ->
           Log.e("XPOD", "Unable to import OPML", error)
-          status.value = context.getString(R.string.could_not_add_feed)
+          showError(context.getString(R.string.could_not_add_feed))
         },
     )
   }
@@ -614,12 +613,20 @@ constructor(
   fun exportOpml(uri: Uri) = viewModelScope.launch {
     context.contentResolver.openOutputStream(uri)?.use {
       podcasts.exportOpml(it, reader.allFeeds())
-      status.value = context.getString(R.string.subscriptions_exported)
+      showStatus(context.getString(R.string.subscriptions_exported))
     }
   }
 
   fun dismissStatus() {
     status.value = null
+  }
+
+  private fun showStatus(message: String, severity: StatusSeverity = StatusSeverity.Info) {
+    status.value = UiStatus(message, severity)
+  }
+
+  private fun showError(message: String) {
+    showStatus(message, StatusSeverity.Error)
   }
 
   fun setDynamicColor(enabled: Boolean) = viewModelScope.launch {
@@ -649,15 +656,16 @@ constructor(
           runCatchingCancellable { cloudMemos.configure(baseUrl, token.ifBlank { null }) }
               .fold(
                   {
-                    status.value = context.getString(R.string.cloud_memos_connected)
+                    showStatus(context.getString(R.string.cloud_memos_connected))
                     onSuccess()
                   },
                   { error ->
-                    status.value =
+                    showError(
                         context.getString(
                             R.string.cloud_memos_connection_failed_reason,
                             memosFailureReason(error),
                         )
+                    )
                   },
               )
         } finally {
@@ -670,7 +678,7 @@ constructor(
     cloudMemosBusy.value = true
     try {
       cloudMemos.disconnect()
-      status.value = context.getString(R.string.cloud_memos_disconnected)
+      showStatus(context.getString(R.string.cloud_memos_disconnected))
     } finally {
       cloudMemosBusy.value = false
     }
@@ -689,13 +697,14 @@ constructor(
       cloudMemos
           .createMemo(content, CloudMemoVisibility.Private)
           .fold(
-              { status.value = context.getString(R.string.cloud_memos_saved) },
+              { showStatus(context.getString(R.string.cloud_memos_saved)) },
               { error ->
-                status.value =
+                showError(
                     context.getString(
                         R.string.cloud_memos_save_failed_reason,
                         memosFailureReason(error),
                     )
+                )
               },
           )
     } finally {

@@ -59,8 +59,8 @@ constructor(
 ) : ViewModel() {
   private val _memosState = MutableStateFlow(MemosUiState())
   val memosState: StateFlow<MemosUiState> = _memosState
-  private val _status = MutableStateFlow<String?>(null)
-  val status: StateFlow<String?> = _status
+  private val _status = MutableStateFlow<UiStatus?>(null)
+  val status: StateFlow<UiStatus?> = _status
   val connection: StateFlow<CloudMemosConnection> =
       cloudMemos.connection.stateIn(
           viewModelScope,
@@ -209,7 +209,7 @@ constructor(
                         archivedMemoForUndo =
                             latest.archivedMemoForUndo?.takeUnless { it.id == memoId },
                     )
-                _status.value = memosStrings.get(R.string.cloud_memo_archive_undone)
+                _status.value = UiStatus(memosStrings.get(R.string.cloud_memo_archive_undone))
                 startMemosLoad(reset = true)
               },
               { error ->
@@ -267,7 +267,7 @@ constructor(
                         pendingPrivateShareMemoId =
                             latest.pendingPrivateShareMemoId.takeUnless { it == memoId },
                     )
-                _status.value = memosStrings.get(R.string.cloud_memo_moved_to_trash)
+                _status.value = UiStatus(memosStrings.get(R.string.cloud_memo_moved_to_trash))
                 startMemosLoad(reset = true)
               },
               { error ->
@@ -310,7 +310,7 @@ constructor(
       result.fold(
           {
             _memosState.value = _memosState.value.copy(draft = "", isCreating = false)
-            _status.value = memosStrings.get(R.string.cloud_memos_saved)
+            _status.value = UiStatus(memosStrings.get(R.string.cloud_memos_saved))
             startMemosLoad(reset = true)
           },
           { error ->
@@ -418,7 +418,11 @@ constructor(
     val latest = _memosState.value
     _memosState.value = latest.copy(busyMemoIds = latest.busyMemoIds - memoId)
     if (error is CloudMemosHttpException && error.errorCode == "VERSION_CONFLICT") {
-      _status.value = memosStrings.get(R.string.cloud_memo_version_conflict)
+      _status.value =
+          UiStatus(
+              memosStrings.get(R.string.cloud_memo_version_conflict),
+              StatusSeverity.Error,
+          )
       startMemosLoad(reset = true)
     } else {
       _memosState.value =

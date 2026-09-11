@@ -40,8 +40,8 @@ constructor(
   private val musicQuery = MutableStateFlow("")
   private val musicScanning = MutableStateFlow(false)
   private var musicScanJob: Job? = null
-  private val _status = MutableStateFlow<String?>(null)
-  val status: StateFlow<String?> = _status
+  private val _status = MutableStateFlow<UiStatus?>(null)
+  val status: StateFlow<UiStatus?> = _status
 
   val musicState: StateFlow<MusicUiState> =
       combine(localMusic.tracks, localMusic.treeUri, musicQuery, musicScanning) {
@@ -93,15 +93,21 @@ constructor(
                     }
                     .onFailure { Log.w("XPOD", "Unable to clean the local music queue", it) }
                 _status.value =
-                    context.resources.getQuantityString(
-                        R.plurals.local_tracks_scanned,
-                        count,
-                        count,
+                    UiStatus(
+                        context.resources.getQuantityString(
+                            R.plurals.local_tracks_scanned,
+                            count,
+                            count,
+                        )
                     )
               },
               {
                 Log.w("XPOD", "Unable to scan the selected music folder", it)
-                _status.value = context.getString(R.string.local_music_scan_failed)
+                _status.value =
+                    UiStatus(
+                        context.getString(R.string.local_music_scan_failed),
+                        StatusSeverity.Error,
+                    )
               },
           )
     } finally {
@@ -128,15 +134,21 @@ constructor(
                     }
                     .onFailure { Log.w("XPOD", "Unable to clean the local music queue", it) }
                 _status.value =
-                    context.resources.getQuantityString(
-                        R.plurals.local_tracks_scanned,
-                        count,
-                        count,
+                    UiStatus(
+                        context.resources.getQuantityString(
+                            R.plurals.local_tracks_scanned,
+                            count,
+                            count,
+                        )
                     )
               },
               {
                 Log.w("XPOD", "Unable to refresh local music", it)
-                _status.value = context.getString(R.string.local_music_scan_failed)
+                _status.value =
+                    UiStatus(
+                        context.getString(R.string.local_music_scan_failed),
+                        StatusSeverity.Error,
+                    )
               },
           )
     } finally {
@@ -148,7 +160,7 @@ constructor(
   fun cancelLocalMusicScan() {
     if (musicScanJob?.isActive != true) return
     musicScanJob?.cancel()
-    _status.value = context.getString(R.string.local_music_scan_cancelled)
+    _status.value = UiStatus(context.getString(R.string.local_music_scan_cancelled))
   }
 
   fun setMusicQuery(query: String) {
@@ -157,18 +169,27 @@ constructor(
 
   fun playMusic(tracks: List<LocalTrackEntity>, startTrackId: String) = viewModelScope.launch {
     runCatchingCancellable { player.playMusic(tracks, startTrackId) }
-        .onFailure { _status.value = context.getString(R.string.could_not_start_playback) }
+        .onFailure {
+          _status.value =
+              UiStatus(context.getString(R.string.could_not_start_playback), StatusSeverity.Error)
+        }
   }
 
   fun playMusicNext(track: LocalTrackEntity) = viewModelScope.launch {
     runCatchingCancellable { player.playNext(track) }
-        .onSuccess { _status.value = context.getString(R.string.added_next) }
-        .onFailure { _status.value = context.getString(R.string.could_not_update_queue) }
+        .onSuccess { _status.value = UiStatus(context.getString(R.string.added_next)) }
+        .onFailure {
+          _status.value =
+              UiStatus(context.getString(R.string.could_not_update_queue), StatusSeverity.Error)
+        }
   }
 
   fun addMusicToQueue(track: LocalTrackEntity) = viewModelScope.launch {
     runCatchingCancellable { player.addToQueue(track) }
-        .onSuccess { _status.value = context.getString(R.string.added_to_queue) }
-        .onFailure { _status.value = context.getString(R.string.could_not_update_queue) }
+        .onSuccess { _status.value = UiStatus(context.getString(R.string.added_to_queue)) }
+        .onFailure {
+          _status.value =
+              UiStatus(context.getString(R.string.could_not_update_queue), StatusSeverity.Error)
+        }
   }
 }

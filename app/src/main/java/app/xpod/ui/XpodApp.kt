@@ -19,18 +19,22 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,10 +46,12 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SnackbarVisuals
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -218,7 +224,10 @@ private fun XpodHome(
                   )
               ) {
                 coroutineScope.launch {
-                  snackbar.showSnackbar(resources.getString(R.string.share_unavailable))
+                  snackbar.showXpodSnackbar(
+                      resources.getString(R.string.share_unavailable),
+                      StatusSeverity.Error,
+                  )
                 }
               }
             },
@@ -234,7 +243,10 @@ private fun XpodHome(
                     )
                 ) {
                   coroutineScope.launch {
-                    snackbar.showSnackbar(resources.getString(R.string.share_unavailable))
+                    snackbar.showXpodSnackbar(
+                        resources.getString(R.string.share_unavailable),
+                        StatusSeverity.Error,
+                    )
                   }
                 }
               }
@@ -369,19 +381,19 @@ private fun XpodHome(
 
   LaunchedEffect(state.status) {
     state.status?.let {
-      snackbar.showSnackbar(it)
+      snackbar.showXpodSnackbar(it)
       viewModel.dismissStatus()
     }
   }
   LaunchedEffect(memosStatus) {
     memosStatus?.let {
-      snackbar.showSnackbar(it)
+      snackbar.showXpodSnackbar(it)
       memosViewModel.dismissStatus()
     }
   }
   LaunchedEffect(musicStatus) {
     musicStatus?.let {
-      snackbar.showSnackbar(it)
+      snackbar.showXpodSnackbar(it)
       musicViewModel.dismissStatus()
     }
   }
@@ -393,7 +405,7 @@ private fun XpodHome(
   ) {
     archivedMemoForUndo?.let { memo ->
       val result =
-          snackbar.showSnackbar(
+          snackbar.showXpodSnackbar(
               message = resources.getString(R.string.cloud_memo_archived),
               actionLabel = resources.getString(R.string.undo),
               withDismissAction = true,
@@ -425,7 +437,7 @@ private fun XpodHome(
                 )
           }
       val result =
-          snackbar.showSnackbar(
+          snackbar.showXpodSnackbar(
               message = message,
               actionLabel = resources.getString(R.string.undo),
               withDismissAction = true,
@@ -668,8 +680,8 @@ private fun XpodHome(
         )
       },
   ) { padding ->
-    Box(Modifier.fillMaxSize().padding(padding)) {
-      Row(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().padding(padding)) {
+      Row(Modifier.fillMaxWidth().weight(1f)) {
         if (wide && selectedArticleId == null && !fullPlayer)
             NavigationRail {
               visibleTabs.forEach { item ->
@@ -687,12 +699,60 @@ private fun XpodHome(
             }
         key(contentRouteId) { content() }
       }
-      SnackbarHost(
-          snackbar,
-          Modifier.align(Alignment.TopCenter)
-              .fillMaxWidth()
-              .padding(horizontal = 16.dp, vertical = 12.dp),
-      )
+      Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Box(Modifier.widthIn(max = 480.dp).padding(horizontal = 16.dp, vertical = 12.dp)) {
+          SnackbarHost(snackbar, Modifier.fillMaxWidth()) { data ->
+            val isError = (data.visuals as? XpodSnackbarVisuals)?.severity == StatusSeverity.Error
+            val containerColor =
+                if (isError) MaterialTheme.colorScheme.errorContainer
+                else MaterialTheme.colorScheme.surfaceContainerHigh
+            val contentColor =
+                if (isError) MaterialTheme.colorScheme.onErrorContainer
+                else MaterialTheme.colorScheme.onSurface
+            val actionColor =
+                if (isError) MaterialTheme.colorScheme.onErrorContainer
+                else MaterialTheme.colorScheme.primary
+            Snackbar(
+                containerColor = containerColor,
+                contentColor = contentColor,
+                actionContentColor = actionColor,
+                dismissActionContentColor = contentColor,
+                action =
+                    data.visuals.actionLabel?.let { label ->
+                      {
+                        TextButton(
+                            onClick = data::performAction,
+                            colors = ButtonDefaults.textButtonColors(contentColor = actionColor),
+                        ) {
+                          Text(label)
+                        }
+                      }
+                    },
+                dismissAction =
+                    if (data.visuals.withDismissAction) {
+                      {
+                        IconButton(onClick = data::dismiss) {
+                          Icon(Icons.Filled.Close, stringResource(R.string.dismiss_snackbar))
+                        }
+                      }
+                    } else {
+                      null
+                    },
+            ) {
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isError) {
+                  Icon(
+                      Icons.Filled.ErrorOutline,
+                      contentDescription = null,
+                      modifier = Modifier.padding(end = 8.dp),
+                  )
+                }
+                Text(data.visuals.message)
+              }
+            }
+          }
+        }
+      }
     }
   }
   nowPlaying
@@ -764,6 +824,34 @@ private fun XpodHome(
       onDismiss = viewModel::dismissBulkMarkRequest,
   )
 }
+
+private data class XpodSnackbarVisuals(
+    override val message: String,
+    val severity: StatusSeverity,
+    override val actionLabel: String? = null,
+    override val withDismissAction: Boolean = false,
+    override val duration: SnackbarDuration = SnackbarDuration.Short,
+) : SnackbarVisuals
+
+private suspend fun SnackbarHostState.showXpodSnackbar(
+    message: String,
+    severity: StatusSeverity = StatusSeverity.Info,
+    actionLabel: String? = null,
+    withDismissAction: Boolean = false,
+    duration: SnackbarDuration = SnackbarDuration.Short,
+): SnackbarResult =
+    showSnackbar(
+        XpodSnackbarVisuals(
+            message = message,
+            severity = severity,
+            actionLabel = actionLabel,
+            withDismissAction = withDismissAction,
+            duration = duration,
+        )
+    )
+
+private suspend fun SnackbarHostState.showXpodSnackbar(status: UiStatus): SnackbarResult =
+    showXpodSnackbar(status.message, status.severity)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
