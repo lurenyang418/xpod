@@ -8,10 +8,12 @@ import androidx.lifecycle.viewModelScope
 import app.xpod.R
 import app.xpod.data.LocalMusicRepository
 import app.xpod.data.LocalTrackEntity
+import app.xpod.data.appendRelativePath
 import app.xpod.playback.PlaybackController
 import app.xpod.util.runCatchingCancellable
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.util.Locale
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,12 +23,28 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+data class MusicFolder(
+    val path: String,
+    val name: String,
+    val trackCount: Int,
+)
+
 data class MusicUiState(
     val tracks: List<LocalTrackEntity> = emptyList(),
     val visibleTracks: List<LocalTrackEntity> = emptyList(),
+    val visibleFolders: List<MusicFolder> = emptyList(),
+    val playbackTracks: List<LocalTrackEntity> = emptyList(),
+    val currentFolderPath: String = "",
     val selectedTreeUri: String? = null,
     val query: String = "",
     val isScanning: Boolean = false,
+)
+
+internal data class MusicFolderContents(
+    val currentFolderPath: String,
+    val folders: List<MusicFolder>,
+    val directTracks: List<LocalTrackEntity>,
+    val playbackTracks: List<LocalTrackEntity>,
 )
 
 @HiltViewModel
@@ -38,28 +56,40 @@ constructor(
     @param:ApplicationContext private val context: Context,
 ) : ViewModel() {
   private val musicQuery = MutableStateFlow("")
+  private val musicFolderPath = MutableStateFlow("")
   private val musicScanning = MutableStateFlow(false)
   private var musicScanJob: Job? = null
   private val _status = MutableStateFlow<UiStatus?>(null)
   val status: StateFlow<UiStatus?> = _status
 
   val musicState: StateFlow<MusicUiState> =
-      combine(localMusic.tracks, localMusic.treeUri, musicQuery, musicScanning) {
+      combine(localMusic.tracks, localMusic.treeUri, musicQuery, musicScanning, musicFolderPath) {
               tracks,
               treeUri,
               query,
-              scanning ->
+              scanning,
+              requestedFolderPath ->
             val normalizedQuery = query.trim()
+            val folderContents = musicFolderContents(tracks, requestedFolderPath)
+            val searchTracks =
+                if (normalizedQuery.isBlank()) {
+                  emptyList()
+                } else {
+                  tracks.filter {
+                    it.title.contains(normalizedQuery, ignoreCase = true) ||
+                        it.artist.contains(normalizedQuery, ignoreCase = true) ||
+                        it.album.contains(normalizedQuery, ignoreCase = true)
+                  }
+                }
             MusicUiState(
                 tracks = tracks,
                 visibleTracks =
-                    if (normalizedQuery.isBlank()) tracks
-                    else
-                        tracks.filter {
-                          it.title.contains(normalizedQuery, ignoreCase = true) ||
-                              it.artist.contains(normalizedQuery, ignoreCase = true) ||
-                              it.album.contains(normalizedQuery, ignoreCase = true)
-                        },
+                    if (normalizedQuery.isBlank()) folderContents.directTracks else searchTracks,
+                visibleFolders =
+                    if (normalizedQuery.isBlank()) folderContents.folders else emptyList(),
+                playbackTracks =
+                    if (normalizedQuery.isBlank()) folderContents.playbackTracks else searchTracks,
+                currentFolderPath = folderContents.currentFolderPath,
                 selectedTreeUri = treeUri,
                 query = query,
                 isScanning = scanning,
@@ -88,6 +118,8 @@ constructor(
       runCatchingCancellable { localMusic.selectTree(uri) }
           .fold(
               { count ->
+                musicFolderPath.value = ""
+                musicQuery.value = ""
                 runCatchingCancellable {
                       player.removeMissingLocalTracks(localMusic.trackIds())
                     }
@@ -167,6 +199,11 @@ constructor(
     musicQuery.value = query
   }
 
+  fun openMusicFolder(path: String) {
+    musicFolderPath.value = normalizeMusicPath(path)
+    musicQuery.value = ""
+  }
+
   fun playMusic(tracks: List<LocalTrackEntity>, startTrackId: String) = viewModelScope.launch {
     runCatchingCancellable { player.playMusic(tracks, startTrackId) }
         .onFailure {
@@ -193,3 +230,63 @@ constructor(
         }
   }
 }
+
+internal fun musicFolderContents(
+    tracks: List<LocalTrackEntity>,
+    requestedFolderPath: String,
+): MusicFolderContents {
+  val normalizedTracks = tracks.map { it to normalizeMusicPath(it.relativePath) }
+  val requestedPath = normalizeMusicPath(requestedFolderPath)
+  val requestedPrefix = if (requestedPath.isBlank()) "" else "$requestedPath/"
+  val requestedPathExists =
+      requestedPath.isBlank() ||
+          normalizedTracks.any { (_, path) ->
+            path == requestedPath || path.startsWith(requestedPrefix)
+          }
+  val currentPath = if (requestedPathExists) requestedPath else ""
+
+  val prefix = if (currentPath.isBlank()) "" else "$currentPath/"
+  val directTracks =
+      normalizedTracks.filter { (_, path) -> path == currentPath }.map { (track, _) -> track }
+  val playbackTracks =
+      normalizedTracks
+          .filter { (_, path) ->
+            currentPath.isBlank() || path == currentPath || path.startsWith(prefix)
+          }
+          .map { (track, _) -> track }
+
+  val childPaths = linkedSetOf<String>()
+  normalizedTracks.forEach { (_, path) ->
+    if (path == currentPath) return@forEach
+    if (currentPath.isNotBlank() && !path.startsWith(prefix)) return@forEach
+    val remainder = if (currentPath.isBlank()) path else path.removePrefix(prefix)
+    if (remainder.isBlank()) return@forEach
+    val childName = remainder.substringBefore('/')
+    childPaths += appendRelativePath(currentPath, childName)
+  }
+
+  val folders =
+      childPaths
+          .sortedBy { it.substringAfterLast('/').lowercase(Locale.ROOT) }
+          .map { path ->
+            val folderPrefix = "$path/"
+            MusicFolder(
+                path = path,
+                name = path.substringAfterLast('/'),
+                trackCount =
+                    normalizedTracks.count { (_, trackPath) ->
+                      trackPath == path || trackPath.startsWith(folderPrefix)
+                    },
+            )
+          }
+
+  return MusicFolderContents(
+      currentFolderPath = currentPath,
+      folders = folders,
+      directTracks = directTracks,
+      playbackTracks = playbackTracks,
+  )
+}
+
+internal fun normalizeMusicPath(path: String): String =
+    path.trim('/').split('/').filter(String::isNotBlank).joinToString("/")

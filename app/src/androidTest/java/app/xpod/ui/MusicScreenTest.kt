@@ -30,6 +30,7 @@ class MusicScreenTest {
                 MusicUiState(
                     tracks = listOf(hidden, visible),
                     visibleTracks = listOf(visible),
+                    playbackTracks = listOf(visible),
                     selectedTreeUri = "content://provider/tree/music",
                 ),
             nowPlaying = null,
@@ -77,6 +78,42 @@ class MusicScreenTest {
     compose.onNodeWithTag("local_music_cancel_scan").performClick()
 
     compose.runOnIdle { assertEquals(true, cancelled) }
+  }
+
+  @Test
+  fun folderCanBeOpenedWithoutStartingPlayback() {
+    var openedPath: String? = null
+    var playedId: String? = null
+    val folder = MusicFolder(path = "Jazz", name = "Jazz", trackCount = 2)
+
+    compose.setContent {
+      MaterialTheme {
+        MusicScreen(
+            state =
+                MusicUiState(
+                    visibleFolders = listOf(folder),
+                    selectedTreeUri = "content://provider/tree/music",
+                ),
+            nowPlaying = null,
+            chooseFolder = {},
+            refresh = {},
+            cancelScan = {},
+            setQuery = {},
+            openFolder = { openedPath = it },
+            play = { playedId = it.id },
+            togglePlayback = {},
+            playNext = {},
+            addToQueue = {},
+        )
+      }
+    }
+
+    compose.onNodeWithTag("local_music_folder_Jazz").performClick()
+
+    compose.runOnIdle {
+      assertEquals("Jazz", openedPath)
+      assertEquals(null, playedId)
+    }
   }
 
   private fun track(id: String, title: String) =

@@ -327,7 +327,10 @@ private fun XpodHome(
       remember(musicViewModel, requestNotificationPermission, music) {
         val play: (LocalTrackEntity) -> Unit = { track ->
           requestNotificationPermission()
-          musicViewModel.playMusic(music.visibleTracks, track.id)
+          musicViewModel.playMusic(
+              music.playbackTracks,
+              track.id,
+          )
         }
         play
       }
@@ -610,6 +613,7 @@ private fun XpodHome(
               refresh = musicViewModel::refreshLocalMusic,
               cancelScan = musicViewModel::cancelLocalMusicScan,
               setQuery = musicViewModel::setMusicQuery,
+              openFolder = musicViewModel::openMusicFolder,
               play = playMusicTrack,
               togglePlayback = togglePlayback,
               playNext = musicViewModel::playMusicNext,

@@ -32,4 +32,12 @@ class LocalMusicRepositoryTest {
     assertEquals("archive.tar", titleFrom("archive.tar.ogg"))
     assertEquals("Untitled track", titleFrom(".mp3"))
   }
+
+  @Test
+  fun relativePathsJoinDirectoryNamesWithoutDuplicateSeparators() {
+    assertEquals("Jazz/Live", appendRelativePath("Jazz", "Live"))
+    assertEquals("Jazz", appendRelativePath("", "Jazz"))
+    assertEquals("Live", appendRelativePath("/", "/Live/"))
+    assertEquals("Jazz/Live", appendRelativePath("Jazz/", "/Live/"))
+  }
 }

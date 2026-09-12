@@ -70,7 +70,7 @@ data class ArticleEntity(
     val isFavorite: Boolean = false,
 )
 
-@Entity(indices = [Index("treeUri"), Index("title")])
+@Entity(indices = [Index("treeUri"), Index("title"), Index("relativePath")])
 data class LocalTrackEntity(
     @PrimaryKey val id: String,
     val documentUri: String,
@@ -80,6 +80,7 @@ data class LocalTrackEntity(
     val album: String,
     val durationMs: Long,
     val modifiedEpochMs: Long,
+    val relativePath: String = "",
 )
 
 enum class PlaybackMediaType {

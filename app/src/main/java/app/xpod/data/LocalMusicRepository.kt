@@ -104,27 +104,32 @@ constructor(
     }
   }
 
+  private data class PendingDirectory(val documentId: String, val relativePath: String)
+
   private suspend fun scan(treeUri: Uri): List<LocalTrackEntity> {
     val rootId = DocumentsContract.getTreeDocumentId(treeUri)
     val visited = mutableSetOf<String>()
     val tracks = mutableListOf<LocalTrackEntity>()
-    val pendingDirectories = ArrayDeque<String>().apply { addLast(rootId) }
+    val pendingDirectories =
+        ArrayDeque<PendingDirectory>().apply {
+          addLast(PendingDirectory(documentId = rootId, relativePath = ""))
+        }
     while (pendingDirectories.isNotEmpty()) {
       currentCoroutineContext().ensureActive()
-      val parentDocumentId = pendingDirectories.removeLast()
-      if (!visited.add(parentDocumentId)) continue
-      scanChildren(treeUri, parentDocumentId, pendingDirectories, tracks)
+      val directory = pendingDirectories.removeLast()
+      if (!visited.add(directory.documentId)) continue
+      scanChildren(treeUri, directory, pendingDirectories, tracks)
     }
     return tracks.distinctBy(LocalTrackEntity::id).sortedBy { it.title.lowercase() }
   }
 
   private suspend fun scanChildren(
       treeUri: Uri,
-      parentDocumentId: String,
-      pendingDirectories: ArrayDeque<String>,
+      parent: PendingDirectory,
+      pendingDirectories: ArrayDeque<PendingDirectory>,
       tracks: MutableList<LocalTrackEntity>,
   ) {
-    val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId)
+    val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parent.documentId)
     queryChildren(childrenUri)?.use { cursor ->
       val idIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
       val nameIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
@@ -139,7 +144,12 @@ constructor(
         val modifiedEpochMs =
             if (cursor.isNull(modifiedIndex)) 0L else cursor.getLong(modifiedIndex)
         if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
-          pendingDirectories.addLast(documentId)
+          pendingDirectories.addLast(
+              PendingDirectory(
+                  documentId = documentId,
+                  relativePath = appendRelativePath(parent.relativePath, name),
+              )
+          )
         } else if (isSupportedAudioDocument(mimeType, name)) {
           val documentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
           tracks +=
@@ -149,6 +159,7 @@ constructor(
                   documentId = documentId,
                   displayName = name,
                   modifiedEpochMs = modifiedEpochMs,
+                  relativePath = parent.relativePath,
               )
         }
       }
@@ -179,6 +190,7 @@ constructor(
       documentId: String,
       displayName: String,
       modifiedEpochMs: Long,
+      relativePath: String,
   ): LocalTrackEntity {
     var metadataTitle: String? = null
     var artist = ""
@@ -207,6 +219,7 @@ constructor(
         album = album.trim(),
         durationMs = durationMs,
         modifiedEpochMs = modifiedEpochMs,
+        relativePath = relativePath,
     )
   }
 
@@ -233,3 +246,6 @@ internal fun localTrackId(authority: String, documentId: String): String =
 
 internal fun titleFrom(displayName: String): String =
     displayName.substringBeforeLast('.', displayName).trim().ifBlank { "Untitled track" }
+
+internal fun appendRelativePath(parent: String, child: String): String =
+    listOf(parent.trim('/'), child.trim('/')).filter(String::isNotBlank).joinToString("/")

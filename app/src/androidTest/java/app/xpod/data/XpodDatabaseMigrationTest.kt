@@ -139,6 +139,32 @@ class XpodDatabaseMigrationTest {
         }
   }
 
+  @Test
+  fun migrate4To5AddsRelativePathToLocalMusic() {
+    helper.createDatabase(TEST_DATABASE, 4).apply {
+      execSQL(
+          "INSERT INTO LocalTrackEntity (id, documentUri, treeUri, title, artist, album, durationMs, modifiedEpochMs) VALUES ('local:track', 'content://provider/document/track', 'content://provider/tree/music', 'Track', 'Artist', 'Album', 1000, 2)"
+      )
+      close()
+    }
+
+    helper
+        .runMigrationsAndValidate(
+            TEST_DATABASE,
+            5,
+            true,
+            XpodDatabaseMigrations.MIGRATION_4_5,
+        )
+        .use { database ->
+          database
+              .query("SELECT relativePath FROM LocalTrackEntity WHERE id = 'local:track'")
+              .use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("", cursor.getString(0))
+              }
+        }
+  }
+
   private companion object {
     const val TEST_DATABASE = "xpod-migration-test"
   }

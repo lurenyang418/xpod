@@ -260,6 +260,8 @@
     <string name="cancel_local_music_scan">Cancel scan</string>
     <string name="local_music_scan_cancelled">Local music scan cancelled</string>
     <string name="search_local_music">Search title, artist, or album</string>
+    <string name="all_local_music">All music</string>
+    <string name="open_music_folder">Open music folder</string>
     <plurals name="local_track_count">
         <item quantity="one">%1$d track</item>
         <item quantity="other">%1$d tracks</item>

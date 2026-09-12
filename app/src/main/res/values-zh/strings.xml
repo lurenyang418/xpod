@@ -249,6 +249,8 @@
     <string name="cancel_local_music_scan">取消扫描</string>
     <string name="local_music_scan_cancelled">已取消本地音乐扫描</string>
     <string name="search_local_music">搜索标题、艺术家或专辑</string>
+    <string name="all_local_music">全部音乐</string>
+    <string name="open_music_folder">打开音乐文件夹</string>
     <plurals name="local_track_count">
         <item quantity="other">%1$d 首曲目</item>
     </plurals>

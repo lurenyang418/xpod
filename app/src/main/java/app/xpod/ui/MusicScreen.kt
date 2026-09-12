@@ -1,8 +1,10 @@
 package app.xpod.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,9 +12,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
@@ -55,6 +59,7 @@ internal fun MusicScreen(
     refresh: () -> Unit,
     cancelScan: () -> Unit,
     setQuery: (String) -> Unit,
+    openFolder: (String) -> Unit = {},
     play: (LocalTrackEntity) -> Unit,
     togglePlayback: () -> Unit,
     playNext: (LocalTrackEntity) -> Unit,
@@ -90,6 +95,8 @@ internal fun MusicScreen(
     return
   }
 
+  val folderPlaybackTracks = state.playbackTracks
+
   Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
     Row(
         Modifier.fillMaxWidth().padding(top = 12.dp),
@@ -121,6 +128,9 @@ internal fun MusicScreen(
         label = { Text(stringResource(R.string.search_local_music)) },
         singleLine = true,
     )
+    if (state.query.isBlank()) {
+      MusicBreadcrumbs(state.currentFolderPath, openFolder)
+    }
     Row(
         Modifier.fillMaxWidth().padding(bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -128,22 +138,22 @@ internal fun MusicScreen(
       Text(
           pluralStringResource(
               R.plurals.local_track_count,
-              state.visibleTracks.size,
-              state.visibleTracks.size,
+              folderPlaybackTracks.size,
+              folderPlaybackTracks.size,
           ),
           Modifier.weight(1f),
           style = MaterialTheme.typography.bodyMedium,
       )
       Button(
-          onClick = { state.visibleTracks.firstOrNull()?.let(play) },
-          enabled = state.visibleTracks.isNotEmpty() && !state.isScanning,
+          onClick = { folderPlaybackTracks.firstOrNull()?.let(play) },
+          enabled = folderPlaybackTracks.isNotEmpty() && !state.isScanning,
           modifier = Modifier.testTag("local_music_play_all"),
       ) {
         Icon(Icons.Filled.PlayArrow, null)
         Text(stringResource(R.string.play_all), Modifier.padding(start = 6.dp))
       }
     }
-    if (state.visibleTracks.isEmpty()) {
+    if (state.visibleFolders.isEmpty() && state.visibleTracks.isEmpty()) {
       Text(
           stringResource(
               if (state.query.isBlank()) R.string.no_local_tracks else R.string.no_music_matches
@@ -152,8 +162,19 @@ internal fun MusicScreen(
           style = MaterialTheme.typography.bodyLarge,
       )
     } else {
-      LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        items(state.visibleTracks, key = LocalTrackEntity::id) { track ->
+      LazyColumn(
+          Modifier.fillMaxWidth().weight(1f),
+          contentPadding = PaddingValues(bottom = 12.dp),
+          verticalArrangement = Arrangement.spacedBy(6.dp),
+      ) {
+        items(state.visibleFolders, key = { "folder:${it.path}" }) { folder ->
+          FolderRow(
+              folder = folder,
+              enabled = !state.isScanning,
+              onOpen = { openFolder(folder.path) },
+          )
+        }
+        items(state.visibleTracks, key = { "track:${it.id}" }) { track ->
           val active = nowPlaying?.item?.id == track.id
           TrackRow(
               track = track,
@@ -167,6 +188,80 @@ internal fun MusicScreen(
               onAddToQueue = { addToQueue(track) },
           )
         }
+      }
+    }
+  }
+}
+
+@Composable
+private fun MusicBreadcrumbs(currentPath: String, openFolder: (String) -> Unit) {
+  if (currentPath.isBlank()) {
+    Text(
+        stringResource(R.string.all_local_music),
+        Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    return
+  }
+
+  val paths = buildList {
+    add("")
+    val segments = currentPath.split('/')
+    segments.indices.forEach { index ->
+      add(segments.take(index + 1).joinToString("/"))
+    }
+  }
+  Row(
+      Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+      verticalAlignment = Alignment.CenterVertically,
+  ) {
+    paths.forEachIndexed { index, path ->
+      if (index > 0) Text("/", color = MaterialTheme.colorScheme.onSurfaceVariant)
+      TextButton(
+          onClick = { openFolder(path) },
+          contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+      ) {
+        Text(
+            if (path.isBlank()) stringResource(R.string.all_local_music)
+            else path.substringAfterLast('/'),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+      }
+    }
+  }
+}
+
+@Composable
+private fun FolderRow(folder: MusicFolder, enabled: Boolean, onOpen: () -> Unit) {
+  Surface(
+      color = MaterialTheme.colorScheme.surface,
+      shape = MaterialTheme.shapes.medium,
+      modifier =
+          Modifier.fillMaxWidth()
+              .testTag("local_music_folder_${folder.path}")
+              .clickable(enabled = enabled, onClick = onOpen),
+  ) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Icon(
+          Icons.Filled.Folder,
+          contentDescription = stringResource(R.string.open_music_folder),
+          modifier = Modifier.size(44.dp),
+          tint = MaterialTheme.colorScheme.primary,
+      )
+      Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+        Text(folder.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            pluralStringResource(R.plurals.local_track_count, folder.trackCount, folder.trackCount),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
       }
     }
   }
