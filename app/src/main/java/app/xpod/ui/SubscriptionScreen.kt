@@ -53,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -78,6 +79,7 @@ internal fun SubscriptionScreen(
     refreshAll: () -> Unit,
     play: (EpisodeEntity) -> Unit,
     download: (EpisodeEntity) -> Unit,
+    requestRemoveFailedDownload: (EpisodeEntity) -> Unit,
     favorite: (String) -> Unit,
     played: (String, Boolean) -> Unit,
     nowPlaying: NowPlaying?,
@@ -113,6 +115,7 @@ internal fun SubscriptionScreen(
               state.episodes,
               play,
               download,
+              requestRemoveFailedDownload,
               favorite,
               played,
               nowPlaying,
@@ -144,6 +147,7 @@ internal fun SubscriptionScreen(
             state.episodes,
             play,
             download,
+            requestRemoveFailedDownload,
             favorite,
             played,
             nowPlaying,
@@ -308,6 +312,7 @@ internal fun EpisodeList(
     items: List<EpisodeEntity>,
     play: (EpisodeEntity) -> Unit,
     download: (EpisodeEntity) -> Unit,
+    requestRemoveFailedDownload: (EpisodeEntity) -> Unit,
     favorite: (String) -> Unit,
     played: (String, Boolean) -> Unit,
     nowPlaying: NowPlaying?,
@@ -328,6 +333,7 @@ internal fun EpisodeList(
             it,
             play,
             download,
+            requestRemoveFailedDownload,
             favorite,
             played,
             nowPlaying,
@@ -344,6 +350,7 @@ internal fun EpisodeCard(
     episode: EpisodeEntity,
     play: (EpisodeEntity) -> Unit,
     download: (EpisodeEntity) -> Unit,
+    requestRemoveFailedDownload: (EpisodeEntity) -> Unit,
     favorite: (String) -> Unit,
     played: (String, Boolean) -> Unit,
     nowPlaying: NowPlaying?,
@@ -352,7 +359,10 @@ internal fun EpisodeCard(
     togglePlayback: () -> Unit,
     addToQueue: (EpisodeEntity) -> Unit,
 ) =
-    Card(onClick = { openEpisode(episode) }, modifier = Modifier.fillMaxWidth()) {
+    Card(
+        onClick = { openEpisode(episode) },
+        modifier = Modifier.fillMaxWidth().testTag("episode_card_${episode.id}"),
+    ) {
       Column(
           Modifier.fillMaxWidth().padding(16.dp),
           verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -427,19 +437,12 @@ internal fun EpisodeCard(
                 ),
             )
           }
-          IconButton(onClick = { download(episode) }) {
-            val failed = downloadState?.phase == DownloadPhase.Failed
-            val icon =
-                if (downloadState?.isCompleted == true) Icons.Filled.CheckCircle
-                else if (failed) Icons.Filled.Error
-                else if (downloadState != null) Icons.Filled.CloudDownload
-                else Icons.Filled.Download
-            val label =
-                if (downloadState?.isCompleted == true) R.string.remove_download
-                else if (failed) R.string.retry_download
-                else if (downloadState != null) R.string.download_in_progress else R.string.download
-            Icon(icon, stringResource(label))
-          }
+          DownloadAction(
+              episode = episode,
+              downloadState = downloadState,
+              onDownload = { download(episode) },
+              onRequestRemoveFailedDownload = { requestRemoveFailedDownload(episode) },
+          )
           IconButton(onClick = { addToQueue(episode) }) {
             Icon(Icons.AutoMirrored.Filled.QueueMusic, stringResource(R.string.add_to_queue))
           }
@@ -457,6 +460,7 @@ internal fun EpisodeDetailScreen(
     onPlayed: () -> Unit,
     downloadState: DownloadState?,
     onDownload: () -> Unit,
+    onRequestRemoveFailedDownload: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
     onSaveToCloudMemos: (() -> Unit)?,
@@ -496,19 +500,12 @@ internal fun EpisodeDetailScreen(
                 ),
             )
           }
-          IconButton(onClick = onDownload) {
-            val failed = downloadState?.phase == DownloadPhase.Failed
-            val icon =
-                if (downloadState?.isCompleted == true) Icons.Filled.CheckCircle
-                else if (failed) Icons.Filled.Error
-                else if (downloadState != null) Icons.Filled.CloudDownload
-                else Icons.Filled.Download
-            val label =
-                if (downloadState?.isCompleted == true) R.string.remove_download
-                else if (failed) R.string.retry_download
-                else if (downloadState != null) R.string.download_in_progress else R.string.download
-            Icon(icon, stringResource(label))
-          }
+          DownloadAction(
+              episode = episode,
+              downloadState = downloadState,
+              onDownload = onDownload,
+              onRequestRemoveFailedDownload = onRequestRemoveFailedDownload,
+          )
           IconButton(onClick = onPlayNext) {
             Icon(Icons.AutoMirrored.Filled.PlaylistAdd, stringResource(R.string.play_next))
           }
@@ -531,6 +528,60 @@ internal fun EpisodeDetailScreen(
       if (episode.description.isNotBlank())
           item { Text(episode.description, style = MaterialTheme.typography.bodyLarge) }
     }
+
+@Composable
+private fun DownloadAction(
+    episode: EpisodeEntity,
+    downloadState: DownloadState?,
+    onDownload: () -> Unit,
+    onRequestRemoveFailedDownload: () -> Unit,
+) {
+  val failed = downloadState?.phase == DownloadPhase.Failed
+  val icon =
+      if (downloadState?.isCompleted == true) Icons.Filled.CheckCircle
+      else if (failed) Icons.Filled.Error
+      else if (downloadState != null) Icons.Filled.CloudDownload else Icons.Filled.Download
+  val label =
+      if (downloadState?.isCompleted == true) R.string.remove_download
+      else if (failed) R.string.retry_download
+      else if (downloadState != null) R.string.download_in_progress else R.string.download
+
+  IconButton(onClick = onDownload) { Icon(icon, stringResource(label)) }
+  if (failed) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    Box {
+      IconButton(
+          onClick = { menuExpanded = true },
+          modifier = Modifier.testTag("download_actions_${episode.id}"),
+      ) {
+        Icon(Icons.Filled.MoreVert, stringResource(R.string.download_actions))
+      }
+      DropdownMenu(
+          expanded = menuExpanded,
+          onDismissRequest = { menuExpanded = false },
+      ) {
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.retry_download)) },
+            leadingIcon = { Icon(Icons.Filled.Refresh, null) },
+            modifier = Modifier.testTag("retry_download_${episode.id}"),
+            onClick = {
+              menuExpanded = false
+              onDownload()
+            },
+        )
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.remove_download)) },
+            leadingIcon = { Icon(Icons.Filled.Delete, null) },
+            modifier = Modifier.testTag("remove_download_${episode.id}"),
+            onClick = {
+              menuExpanded = false
+              onRequestRemoveFailedDownload()
+            },
+        )
+      }
+    }
+  }
+}
 
 private fun formatPublishedAt(publishedEpochMs: Long): String =
     DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)

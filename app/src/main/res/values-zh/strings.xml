@@ -101,10 +101,11 @@
     <string name="download_removed">已移除下载</string>
     <string name="remove_download">移除下载</string>
     <string name="remove_download_title">移除下载？</string>
-    <string name="remove_download_message">将从此设备移除“%1$s”的离线文件。</string>
+    <string name="remove_download_message">将从此设备移除“%1$s”的下载任务及离线文件。</string>
     <string name="download_in_progress">正在下载</string>
     <string name="download_failed">下载失败，点击重试。</string>
     <string name="retry_download">重试下载</string>
+    <string name="download_actions">下载任务操作</string>
     <string name="waiting_for_network">等待网络连接</string>
     <string name="waiting_for_download">等待下载开始</string>
     <string name="downloaded_size">已下载 %1$s</string>

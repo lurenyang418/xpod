@@ -522,6 +522,7 @@ private fun XpodHome(
             onPlayed = { viewModel.markPlayed(episode.id, !episode.isPlayed) },
             downloadState = downloadStates[episode.id],
             onDownload = { handleDownload(episode) },
+            onRequestRemoveFailedDownload = { downloadToRemove = episode },
             onPlayNext = { viewModel.playNext(episode) },
             onAddToQueue = { viewModel.addToQueue(episode) },
             onSaveToCloudMemos =
@@ -565,6 +566,7 @@ private fun XpodHome(
               refreshAll = viewModel::refreshAllPodcasts,
               play = playEpisode,
               download = handleDownload,
+              requestRemoveFailedDownload = { downloadToRemove = it },
               favorite = viewModel::toggleFavorite,
               played = viewModel::markPlayed,
               nowPlaying = nowPlaying,
@@ -584,6 +586,7 @@ private fun XpodHome(
               play = playEpisode,
               favorite = viewModel::toggleFavorite,
               download = handleDownload,
+              requestRemoveFailedDownload = { downloadToRemove = it },
               played = viewModel::markPlayed,
               nowPlaying = nowPlaying,
               downloadStates = downloadStates,

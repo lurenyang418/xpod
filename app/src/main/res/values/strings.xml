@@ -108,10 +108,11 @@
     <string name="download_removed">Download removed</string>
     <string name="remove_download">Remove download</string>
     <string name="remove_download_title">Remove download?</string>
-    <string name="remove_download_message">Remove the offline file for “%1$s” from this device.</string>
+    <string name="remove_download_message">Remove the download task and offline file for “%1$s” from this device.</string>
     <string name="download_in_progress">Downloading</string>
     <string name="download_failed">Download failed. Tap to retry.</string>
     <string name="retry_download">Retry download</string>
+    <string name="download_actions">Download task actions</string>
     <string name="waiting_for_network">Waiting for network</string>
     <string name="waiting_for_download">Waiting to start download</string>
     <string name="downloaded_size">Downloaded %1$s</string>

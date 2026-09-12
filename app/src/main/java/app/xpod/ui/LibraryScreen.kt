@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import app.xpod.R
@@ -43,6 +44,7 @@ internal fun LibraryScreen(
     play: (EpisodeEntity) -> Unit,
     favorite: (String) -> Unit,
     download: (EpisodeEntity) -> Unit,
+    requestRemoveFailedDownload: (EpisodeEntity) -> Unit,
     played: (String, Boolean) -> Unit,
     nowPlaying: NowPlaying?,
     downloadStates: Map<String, DownloadState>,
@@ -75,7 +77,12 @@ internal fun LibraryScreen(
     Text(stringResource(R.string.library), style = MaterialTheme.typography.headlineSmall)
     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
       items(LibraryFilter.entries) { item ->
-        FilterChip(filter == item, { filter = item }, label = { Text(libraryFilterLabel(item)) })
+        FilterChip(
+            selected = filter == item,
+            onClick = { filter = item },
+            label = { Text(libraryFilterLabel(item)) },
+            modifier = Modifier.testTag("library_filter_${item.name}"),
+        )
       }
     }
     if (episodes.isEmpty()) {
@@ -99,6 +106,7 @@ internal fun LibraryScreen(
               it,
               play,
               download,
+              requestRemoveFailedDownload,
               favorite,
               played,
               nowPlaying,
