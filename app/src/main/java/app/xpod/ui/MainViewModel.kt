@@ -7,38 +7,23 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.xpod.R
-import app.xpod.data.AppTab
 import app.xpod.data.ArticleEntity
 import app.xpod.data.ArticleFeedEntity
-import app.xpod.data.ArticlesReadChange
-import app.xpod.data.CloudMemoDrafts
-import app.xpod.data.CloudMemoVisibility
-import app.xpod.data.CloudMemosConnection
 import app.xpod.data.CloudMemosRepository
 import app.xpod.data.DownloadRepository
 import app.xpod.data.EpisodeEntity
-import app.xpod.data.FeedHttpException
 import app.xpod.data.PlaybackMediaType
 import app.xpod.data.PodcastEntity
-import app.xpod.data.PodcastPlayedChange
 import app.xpod.data.PodcastRepository
 import app.xpod.data.ReaderRepository
-import app.xpod.data.ReadingPreferences
-import app.xpod.data.ReadingPreferencesRepository
-import app.xpod.data.ReadingTheme
-import app.xpod.data.SettingsRepository
 import app.xpod.data.SubscriptionRepository
-import app.xpod.data.ThemeMode
 import app.xpod.data.UnsupportedFeedUrlException
-import app.xpod.data.defaultTabOrder
 import app.xpod.playback.NowPlaying
 import app.xpod.playback.PlaybackController
 import app.xpod.util.runCatchingCancellable
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.io.IOException
 import javax.inject.Inject
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,11 +33,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -99,72 +82,6 @@ internal fun podcastSelectionFlow(
   }
 }
 
-data class CloudMemosUiState(
-    val baseUrl: String = "",
-    val isConfigured: Boolean = false,
-    val isBusy: Boolean = false,
-)
-
-sealed interface BulkMarkRequest {
-  val count: Int
-
-  data class Podcast(
-      val podcastId: String,
-      val podcastTitle: String,
-      override val count: Int,
-  ) : BulkMarkRequest
-
-  data class Articles(
-      val feedId: String?,
-      val feedTitle: String?,
-      override val count: Int,
-  ) : BulkMarkRequest
-}
-
-enum class BulkMarkKind {
-  PodcastEpisodes,
-  Articles,
-}
-
-data class BulkUndoEvent(
-    val id: Long,
-    val kind: BulkMarkKind,
-    val count: Int,
-)
-
-data class BulkActionsUiState(
-    val pendingRequest: BulkMarkRequest? = null,
-    val undoEvent: BulkUndoEvent? = null,
-    val isBusy: Boolean = false,
-)
-
-private sealed interface BulkUndoChange {
-  val count: Int
-
-  data class Podcast(val change: PodcastPlayedChange) : BulkUndoChange {
-    override val count = change.markedPlayedCount
-  }
-
-  data class Articles(val change: ArticlesReadChange) : BulkUndoChange {
-    override val count = change.articleIds.size
-  }
-}
-
-private data class PendingBulkUndo(
-    val eventId: Long,
-    val change: BulkUndoChange,
-)
-
-internal fun unplayedEpisodeCount(episodes: List<EpisodeEntity>, podcastId: String): Int =
-    episodes.count {
-      it.podcastId == podcastId && !it.isPlayed
-    }
-
-internal fun unreadArticleCount(articles: List<ArticleEntity>, feedId: String?): Int =
-    articles.count {
-      !it.isRead && (feedId == null || it.feedId == feedId)
-    }
-
 @HiltViewModel
 class MainViewModel
 @Inject
@@ -174,8 +91,6 @@ constructor(
     private val reader: ReaderRepository,
     private val subscriptions: SubscriptionRepository,
     private val downloads: DownloadRepository,
-    private val settings: SettingsRepository,
-    private val readingPreferences: ReadingPreferencesRepository,
     private val cloudMemos: CloudMemosRepository,
     private val player: PlaybackController,
     @param:ApplicationContext private val context: Context,
@@ -183,12 +98,26 @@ constructor(
   private val _navigation = MutableStateFlow(loadNavigationState())
   internal val navigation: StateFlow<MainNavigationState> = _navigation.asStateFlow()
   private val status = MutableStateFlow<UiStatus?>(null)
-  private val refreshingPodcasts = MutableStateFlow(false)
-  private val refreshingArticles = MutableStateFlow(false)
-  private val cloudMemosBusy = MutableStateFlow(false)
-  private val _bulkActionsState = MutableStateFlow(BulkActionsUiState())
-  private var pendingBulkUndo: PendingBulkUndo? = null
-  private var bulkEventSequence = 0L
+  private val bulkMarkController =
+      BulkMarkController(podcasts, reader, context, viewModelScope) { message, severity ->
+        showStatus(message, severity)
+      }
+  private val cloudMemosController =
+      CloudMemosController(cloudMemos, context, viewModelScope) { message, severity ->
+        showStatus(message, severity)
+      }
+  private val podcastContentController =
+      PodcastContentController(podcasts, subscriptions, context, viewModelScope) { message, severity ->
+        showStatus(message, severity)
+      }
+  private val readerContentController =
+      ReaderContentController(reader, context, viewModelScope) { message, severity ->
+        showStatus(message, severity)
+      }
+  private val downloadActionsController =
+      DownloadActionsController(downloads, context, viewModelScope) { message, severity ->
+        showStatus(message, severity)
+      }
   private val selectedPodcastId =
       navigation.map { it.podcast.selectedPodcastId }.distinctUntilChanged()
   private val podcastSelectionSource = podcastSelectionFlow(selectedPodcastId, podcasts::episodes)
@@ -198,75 +127,26 @@ constructor(
           SharingStarted.Eagerly,
           PodcastSelectionUiState(),
       )
-  private val libraryState =
-      combine(podcasts.podcasts(), podcasts.allEpisodes()) { all, library ->
-        MainUiState(
-            podcasts = all,
-            newEpisodeCounts = library.filter { it.isNew }.groupingBy { it.podcastId }.eachCount(),
-            unplayedEpisodeCounts =
-                library.filterNot { it.isPlayed }.groupingBy { it.podcastId }.eachCount(),
-            libraryEpisodes = library,
-        )
-      }
-  private val podcastState =
-      combine(libraryState, refreshingPodcasts, status) { base, refreshing, message ->
-        base.copy(isRefreshingPodcasts = refreshing, status = message)
-      }
   val state: StateFlow<MainUiState> =
-      combine(podcastState, reader.feeds(), reader.articles(), refreshingArticles) {
-              base,
-              articleFeeds,
-              articles,
-              refreshing ->
-            base.copy(
-                articleFeeds = articleFeeds,
-                articles = articles,
-                isRefreshingArticles = refreshing,
+      combine(podcastContentController.state, readerContentController.state, status) {
+              podcastState,
+              readerState,
+              message ->
+            MainUiState(
+                podcasts = podcastState.podcasts,
+                isRefreshingPodcasts = podcastState.isRefreshing,
+                newEpisodeCounts = podcastState.newEpisodeCounts,
+                unplayedEpisodeCounts = podcastState.unplayedEpisodeCounts,
+                libraryEpisodes = podcastState.libraryEpisodes,
+                articleFeeds = readerState.articleFeeds,
+                articles = readerState.articles,
+                isRefreshingArticles = readerState.isRefreshing,
+                status = message,
             )
           }
           .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState())
-  val dynamicColor =
-      settings.useDynamicColor.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
-  val appTheme =
-      settings.appTheme.stateIn(
-          viewModelScope,
-          SharingStarted.WhileSubscribed(5_000),
-          ThemeMode.System,
-      )
-  val readerPreferences: StateFlow<ReadingPreferences> =
-      readingPreferences.preferences.stateIn(
-          viewModelScope,
-          SharingStarted.WhileSubscribed(5_000),
-          ReadingPreferences(),
-      )
-  val wifiOnlyDownloads =
-      settings.useWifiOnlyDownloads.stateIn(
-          viewModelScope,
-          SharingStarted.WhileSubscribed(5_000),
-          true,
-      )
-  val cloudMemosState: StateFlow<CloudMemosUiState> =
-      combine(cloudMemos.connection, cloudMemosBusy) { connection, busy ->
-            connection.toUiState(busy)
-          }
-          .stateIn(
-              viewModelScope,
-              SharingStarted.WhileSubscribed(5_000),
-              CloudMemosUiState(),
-          )
-  val bulkActionsState: StateFlow<BulkActionsUiState> = _bulkActionsState
-  val tabOrder: StateFlow<List<AppTab>> =
-      settings.tabOrder.stateIn(
-          viewModelScope,
-          SharingStarted.Eagerly,
-          defaultTabOrder,
-      )
-  val enabledTabs: StateFlow<Set<AppTab>> =
-      settings.enabledTabs.stateIn(
-          viewModelScope,
-          SharingStarted.Eagerly,
-          defaultTabOrder.toSet(),
-      )
+  val cloudMemosState: StateFlow<CloudMemosUiState> = cloudMemosController.state
+  val bulkActionsState: StateFlow<BulkActionsUiState> = bulkMarkController.state
   val nowPlaying = player.nowPlaying
 
   /**
@@ -286,39 +166,9 @@ constructor(
 
   val queue = player.queue
   val musicPlaybackSettings = player.musicPlaybackSettings
-  val downloadStates = downloads.states
+  val downloadStates = downloadActionsController.states
 
-  private val summaryParser = ArticleContentParser()
-  /**
-   * Memo cache so unchanged articles are not re-parsed on every emission: id -> (content hash,
-   * summary).
-   */
-  private val summaryCache = HashMap<String, Pair<Int, String>>()
-
-  /**
-   * Plain-text previews per article id, derived off the main thread so list rows never run Jsoup
-   * while composing.
-   */
-  val articleSummaries: StateFlow<Map<String, String>> =
-      reader
-          .articles()
-          .map { articles ->
-            val summaries = HashMap<String, String>(articles.size)
-            articles.forEach { article ->
-              val hash = article.content.hashCode()
-              val cached = summaryCache[article.id]
-              summaries[article.id] =
-                  if (cached != null && cached.first == hash) cached.second
-                  else
-                      summaryParser.plainText(article.content).also {
-                        summaryCache[article.id] = hash to it
-                      }
-            }
-            summaryCache.keys.retainAll(summaries.keys)
-            summaries
-          }
-          .flowOn(Dispatchers.Default)
-          .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+  val articleSummaries: StateFlow<Map<String, String>> = readerContentController.articleSummaries
 
   private fun loadNavigationState(): MainNavigationState = restoreNavigationState(savedStateHandle)
 
@@ -331,20 +181,17 @@ constructor(
     persistNavigationState(savedStateHandle, updated)
   }
 
-  private fun visibleRoutes(): List<AppRoute> =
-      tabOrder.value.filter(enabledTabs.value::contains).toAppRoutes()
-
-  internal fun selectDestination(route: AppRoute) {
-    dispatchNavigation(NavigationAction.SelectDestination(resolveRoute(route, visibleRoutes())))
+  internal fun selectDestination(route: AppRoute, visibleRoutes: List<AppRoute>) {
+    dispatchNavigation(NavigationAction.SelectDestination(resolveRoute(route, visibleRoutes)))
   }
 
   internal fun selectPodcastSubView(value: PodcastSubView) {
     dispatchNavigation(NavigationAction.SelectPodcastSubView(value))
   }
 
-  fun openPodcast(id: String) {
-    if (AppRoute.Podcasts !in visibleRoutes()) {
-      selectDestination(AppRoute.Podcasts)
+  internal fun openPodcast(id: String, visibleRoutes: List<AppRoute>) {
+    if (AppRoute.Podcasts !in visibleRoutes) {
+      selectDestination(AppRoute.Podcasts, visibleRoutes)
       showStatus(context.getString(R.string.podcasts_hidden_in_navigation))
       return
     }
@@ -376,12 +223,6 @@ constructor(
     dispatchNavigation(NavigationAction.NavigateBack)
   }
 
-  init {
-    viewModelScope.launch {
-      runCatching { settings.useWifiOnlyDownloads.first() }.getOrNull()?.let(downloads::setWifiOnly)
-    }
-  }
-
   fun removePodcast(id: String) = viewModelScope.launch {
     runCatchingCancellable { podcasts.remove(id) }
         .onSuccess { removedEpisodeIds ->
@@ -400,239 +241,63 @@ constructor(
         }
   }
 
-  fun removeArticleFeed(id: String) = viewModelScope.launch {
-    reader.remove(id)
-    showStatus(context.getString(R.string.subscription_removed))
-  }
+  fun removeArticleFeed(id: String) = readerContentController.removeFeed(id)
 
   fun requestPodcastMarkAllPlayed(podcastId: String) {
-    if (_bulkActionsState.value.isBusy) return
     val current = state.value
-    val podcast = current.podcasts.firstOrNull { it.id == podcastId } ?: return
-    val count = unplayedEpisodeCount(current.libraryEpisodes, podcastId)
-    if (count == 0) return
-    _bulkActionsState.value =
-        _bulkActionsState.value.copy(
-            pendingRequest = BulkMarkRequest.Podcast(podcastId, podcast.title, count)
-        )
+    bulkMarkController.requestPodcastMarkAllPlayed(
+        podcast = current.podcasts.firstOrNull { it.id == podcastId },
+        episodes = current.libraryEpisodes,
+    )
   }
 
   fun requestArticlesMarkAllRead(feedId: String?) {
-    if (_bulkActionsState.value.isBusy) return
     val current = state.value
-    val feed = feedId?.let { id -> current.articleFeeds.firstOrNull { it.id == id } ?: return }
-    val count = unreadArticleCount(current.articles, feedId)
-    if (count == 0) return
-    _bulkActionsState.value =
-        _bulkActionsState.value.copy(
-            pendingRequest = BulkMarkRequest.Articles(feedId, feed?.title, count)
-        )
+    bulkMarkController.requestArticlesMarkAllRead(
+        feedId = feedId,
+        feedTitle = feedId?.let { id -> current.articleFeeds.firstOrNull { it.id == id }?.title },
+        articles = current.articles,
+    )
   }
 
   fun dismissBulkMarkRequest() {
-    if (_bulkActionsState.value.isBusy) return
-    _bulkActionsState.value = _bulkActionsState.value.copy(pendingRequest = null)
+    bulkMarkController.dismissRequest()
   }
 
   fun confirmBulkMark() {
-    val request = _bulkActionsState.value.pendingRequest ?: return
-    if (_bulkActionsState.value.isBusy) return
-    pendingBulkUndo = null
-    _bulkActionsState.value =
-        _bulkActionsState.value.copy(pendingRequest = null, undoEvent = null, isBusy = true)
-    viewModelScope.launch {
-      runCatchingCancellable {
-            when (request) {
-              is BulkMarkRequest.Podcast ->
-                  BulkUndoChange.Podcast(podcasts.markAllPlayed(request.podcastId))
-              is BulkMarkRequest.Articles ->
-                  BulkUndoChange.Articles(reader.markAllRead(request.feedId))
-            }
-          }
-          .fold(
-              { change ->
-                if (change.count == 0) {
-                  _bulkActionsState.value =
-                      _bulkActionsState.value.copy(isBusy = false, undoEvent = null)
-                  return@fold
-                }
-                val event =
-                    BulkUndoEvent(
-                        id = ++bulkEventSequence,
-                        kind =
-                            when (change) {
-                              is BulkUndoChange.Podcast -> BulkMarkKind.PodcastEpisodes
-                              is BulkUndoChange.Articles -> BulkMarkKind.Articles
-                            },
-                        count = change.count,
-                    )
-                pendingBulkUndo = PendingBulkUndo(event.id, change)
-                _bulkActionsState.value =
-                    _bulkActionsState.value.copy(isBusy = false, undoEvent = event)
-              },
-              { error ->
-                Log.e("XPOD", "Unable to mark items in bulk", error)
-                _bulkActionsState.value =
-                    _bulkActionsState.value.copy(isBusy = false, undoEvent = null)
-                showError(context.getString(R.string.could_not_mark_all))
-              },
-          )
-    }
+    bulkMarkController.confirm()
   }
 
   fun undoBulkMark(eventId: Long) {
-    if (_bulkActionsState.value.isBusy) return
-    val pending = pendingBulkUndo?.takeIf { it.eventId == eventId } ?: return
-    _bulkActionsState.value = _bulkActionsState.value.copy(isBusy = true, undoEvent = null)
-    viewModelScope.launch {
-      runCatchingCancellable {
-            when (val change = pending.change) {
-              is BulkUndoChange.Podcast -> podcasts.restorePlayedChange(change.change)
-              is BulkUndoChange.Articles -> reader.restoreReadChange(change.change)
-            }
-          }
-          .fold(
-              {
-                pendingBulkUndo = null
-                _bulkActionsState.value =
-                    _bulkActionsState.value.copy(isBusy = false, undoEvent = null)
-                showStatus(context.getString(R.string.bulk_mark_undone))
-              },
-              { error ->
-                Log.e("XPOD", "Unable to undo bulk status change", error)
-                val retryEvent =
-                    BulkUndoEvent(
-                        id = ++bulkEventSequence,
-                        kind =
-                            when (pending.change) {
-                              is BulkUndoChange.Podcast -> BulkMarkKind.PodcastEpisodes
-                              is BulkUndoChange.Articles -> BulkMarkKind.Articles
-                            },
-                        count = pending.change.count,
-                    )
-                pendingBulkUndo = PendingBulkUndo(retryEvent.id, pending.change)
-                _bulkActionsState.value =
-                    _bulkActionsState.value.copy(isBusy = false, undoEvent = retryEvent)
-                showError(context.getString(R.string.could_not_undo_bulk_mark))
-              },
-          )
-    }
+    bulkMarkController.undo(eventId)
   }
 
   fun dismissBulkUndo(eventId: Long) {
-    if (pendingBulkUndo?.eventId != eventId) return
-    pendingBulkUndo = null
-    _bulkActionsState.value = _bulkActionsState.value.copy(undoEvent = null)
+    bulkMarkController.dismissUndo(eventId)
   }
 
-  fun addFeed(url: String, onComplete: (Boolean) -> Unit = {}) = viewModelScope.launch {
-    subscriptions
-        .addOrRefresh(url)
-        .fold(
-            {
-              showStatus(context.getString(R.string.added_and_refreshed))
-              onComplete(true)
-            },
-            { error ->
-              Log.e("XPOD", "Unable to add feed", error)
-              showError(
-                  context.getString(
-                      R.string.could_not_add_feed_reason,
-                      feedFailureReason(error),
-                  )
-              )
-              onComplete(false)
-            },
-        )
-  }
+  fun addFeed(url: String, onComplete: (Boolean) -> Unit = {}) =
+      podcastContentController.addFeed(url, onComplete)
 
-  fun refresh(feedUrl: String) = viewModelScope.launch {
-    if (refreshingPodcasts.value) return@launch
-    refreshingPodcasts.value = true
-    try {
-      podcasts.addOrRefresh(feedUrl).onFailure {
-        showError(context.getString(R.string.could_not_refresh_feed))
-      }
-    } finally {
-      refreshingPodcasts.value = false
-    }
-  }
+  fun refresh(feedUrl: String) = podcastContentController.refresh(feedUrl)
 
-  fun refreshAllPodcasts() = viewModelScope.launch {
-    if (refreshingPodcasts.value) return@launch
-    refreshingPodcasts.value = true
-    try {
-      val result = podcasts.refreshAll()
-      if (result.failureCount > 0) {
-        val total = result.refreshedCount + result.failureCount
-        showError(
-            context.resources.getQuantityString(
-                R.plurals.podcasts_refreshed_with_failures,
-                total,
-                result.refreshedCount,
-                total,
-                result.failureCount,
-            )
-        )
-      }
-    } finally {
-      refreshingPodcasts.value = false
-    }
-  }
+  fun refreshAllPodcasts() = podcastContentController.refreshAll()
 
-  fun markArticleRead(id: String) = viewModelScope.launch { reader.markRead(id) }
+  fun markArticleRead(id: String) = readerContentController.markRead(id)
 
-  fun refreshArticles(feedUrl: String?) = viewModelScope.launch {
-    if (refreshingArticles.value) return@launch
-    refreshingArticles.value = true
-    try {
-      val urls = feedUrl?.let(::listOf) ?: reader.allFeeds().map(ArticleFeedEntity::feedUrl)
-      val failures = reader.refresh(urls)
-      failures.forEach { Log.w("XPOD", "Unable to refresh article feed", it) }
-      if (failures.isNotEmpty()) {
-        showError(context.getString(R.string.could_not_refresh_feed))
-      }
-    } finally {
-      refreshingArticles.value = false
-    }
-  }
+  fun refreshArticles(feedUrl: String?) = readerContentController.refresh(feedUrl)
 
-  fun setArticleRead(id: String, read: Boolean) = viewModelScope.launch { reader.setRead(id, read) }
+  fun setArticleRead(id: String, read: Boolean) = readerContentController.setRead(id, read)
 
-  fun toggleArticleFavorite(id: String) = viewModelScope.launch { reader.toggleFavorite(id) }
+  fun toggleArticleFavorite(id: String) = readerContentController.toggleFavorite(id)
 
-  fun toggleFavorite(id: String) = viewModelScope.launch { podcasts.toggleFavorite(id) }
+  fun toggleFavorite(id: String) = podcastContentController.toggleFavorite(id)
 
-  fun markPlayed(id: String, played: Boolean) = viewModelScope.launch {
-    podcasts.setPlayed(id, played)
-  }
+  fun markPlayed(id: String, played: Boolean) = podcastContentController.markPlayed(id, played)
 
-  fun download(episode: EpisodeEntity) = viewModelScope.launch {
-    if (downloads.states.value[episode.id]?.isCompleted == true) {
-      downloads.remove(episode.id)
-      showStatus(context.getString(R.string.download_removed))
-    } else if (downloads.states.value[episode.id]?.phase == app.xpod.data.DownloadPhase.Failed) {
-      downloads
-          .retry(episode)
-          .fold(
-              { showStatus(context.getString(R.string.download_queued)) },
-              { showError(context.getString(R.string.could_not_download)) },
-          )
-    } else if (downloads.states.value[episode.id] != null) {
-      showStatus(context.getString(R.string.download_in_progress))
-    } else
-        downloads
-            .enqueue(episode)
-            .fold(
-                { showStatus(context.getString(R.string.download_queued)) },
-                { showError(context.getString(R.string.could_not_download)) },
-            )
-  }
+  fun download(episode: EpisodeEntity) = downloadActionsController.download(episode)
 
-  fun removeDownload(episodeId: String) {
-    downloads.remove(episodeId)
-    showStatus(context.getString(R.string.download_removed))
-  }
+  fun removeDownload(episodeId: String) = downloadActionsController.remove(episodeId)
 
   fun play(episode: EpisodeEntity) = viewModelScope.launch {
     val result = runCatchingCancellable { player.play(episode) }
@@ -792,117 +457,15 @@ constructor(
     showStatus(message, StatusSeverity.Error)
   }
 
-  fun setDynamicColor(enabled: Boolean) = viewModelScope.launch {
-    settings.setDynamicColor(enabled)
-  }
-
-  fun setAppTheme(theme: ThemeMode) = viewModelScope.launch { settings.setAppTheme(theme) }
-
-  fun setReadingFontSize(value: Float) = viewModelScope.launch {
-    readingPreferences.setFontSizeSp(value)
-  }
-
-  fun setReadingLineHeight(value: Float) = viewModelScope.launch {
-    readingPreferences.setLineHeightMultiplier(value)
-  }
-
-  fun setReadingTheme(value: ReadingTheme) = viewModelScope.launch {
-    readingPreferences.setTheme(value)
-  }
-
-  fun setWifiOnlyDownloads(enabled: Boolean) = viewModelScope.launch {
-    settings.setWifiOnlyDownloads(enabled)
-    downloads.setWifiOnly(enabled)
-  }
-
-  fun moveTab(tab: AppTab, offset: Int) = viewModelScope.launch {
-    settings.moveTab(tab, offset)
-  }
-
-  fun setTabEnabled(tab: AppTab, enabled: Boolean) = viewModelScope.launch {
-    settings.setTabEnabled(tab, enabled)
-  }
-
   fun configureCloudMemos(baseUrl: String, token: String, onSuccess: () -> Unit = {}) =
-      viewModelScope.launch {
-        if (cloudMemosBusy.value) return@launch
-        cloudMemosBusy.value = true
-        try {
-          runCatchingCancellable { cloudMemos.configure(baseUrl, token.ifBlank { null }) }
-              .fold(
-                  {
-                    showStatus(context.getString(R.string.cloud_memos_connected))
-                    onSuccess()
-                  },
-                  { error ->
-                    showError(
-                        context.getString(
-                            R.string.cloud_memos_connection_failed_reason,
-                            memosFailureReason(error),
-                        )
-                    )
-                  },
-              )
-        } finally {
-          cloudMemosBusy.value = false
-        }
-      }
+      cloudMemosController.configure(baseUrl, token, onSuccess)
 
-  fun disconnectCloudMemos() = viewModelScope.launch {
-    if (cloudMemosBusy.value) return@launch
-    cloudMemosBusy.value = true
-    try {
-      cloudMemos.disconnect()
-      showStatus(context.getString(R.string.cloud_memos_disconnected))
-    } finally {
-      cloudMemosBusy.value = false
-    }
-  }
+  fun disconnectCloudMemos() = cloudMemosController.disconnect()
 
   fun saveEpisodeToCloudMemos(episode: EpisodeEntity, podcastTitle: String?) =
-      saveToCloudMemos(CloudMemoDrafts.episode(episode, podcastTitle))
+      cloudMemosController.saveEpisode(episode, podcastTitle)
 
   fun saveArticleToCloudMemos(article: ArticleEntity, feedTitle: String?) =
-      saveToCloudMemos(CloudMemoDrafts.article(article, feedTitle))
+      cloudMemosController.saveArticle(article, feedTitle)
 
-  private fun saveToCloudMemos(content: String) = viewModelScope.launch {
-    if (cloudMemosBusy.value) return@launch
-    cloudMemosBusy.value = true
-    try {
-      cloudMemos
-          .createMemo(content, CloudMemoVisibility.Private)
-          .fold(
-              { showStatus(context.getString(R.string.cloud_memos_saved)) },
-              { error ->
-                showError(
-                    context.getString(
-                        R.string.cloud_memos_save_failed_reason,
-                        memosFailureReason(error),
-                    )
-                )
-              },
-          )
-    } finally {
-      cloudMemosBusy.value = false
-    }
-  }
-
-  private fun memosFailureReason(error: Throwable): String =
-      cloudMemosFailureReason(
-          MemosStrings { resId, formatArgs -> context.getString(resId, *formatArgs) },
-          error,
-      )
-
-  private fun feedFailureReason(error: Throwable): String =
-      when (error) {
-        is UnsupportedFeedUrlException -> context.getString(R.string.feed_error_https_required)
-        is FeedHttpException -> context.getString(R.string.feed_error_http, error.statusCode)
-        is IOException -> context.getString(R.string.feed_error_network)
-        is XmlPullParserException -> context.getString(R.string.feed_error_format)
-        is IllegalArgumentException -> context.getString(R.string.feed_error_format)
-        else -> context.getString(R.string.feed_error_format)
-      }
 }
-
-private fun CloudMemosConnection.toUiState(isBusy: Boolean): CloudMemosUiState =
-    CloudMemosUiState(baseUrl = baseUrl, isConfigured = isConfigured, isBusy = isBusy)
