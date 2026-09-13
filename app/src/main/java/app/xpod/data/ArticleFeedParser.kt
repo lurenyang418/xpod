@@ -1,6 +1,5 @@
 package app.xpod.data
 
-import java.io.InputStream
 import java.net.URI
 import java.time.Instant
 import java.time.LocalDate
@@ -10,7 +9,6 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import org.xmlpull.v1.XmlPullParser
-import org.xmlpull.v1.XmlPullParserFactory
 
 data class ParsedArticleFeed(
     val title: String,
@@ -31,8 +29,8 @@ data class ParsedArticle(
 )
 
 class ArticleFeedParser @Inject constructor() {
-  fun parse(input: InputStream, sourceUrl: String? = null): ParsedArticleFeed {
-    val parser = XmlPullParserFactory.newInstance().newPullParser().apply { setInput(input, null) }
+  fun parse(input: ByteArray, sourceUrl: String? = null): ParsedArticleFeed {
+    val parser = newHardenedXmlPullParser(input)
     while (parser.eventType != XmlPullParser.END_DOCUMENT) {
       if (parser.eventType == XmlPullParser.START_TAG) {
         return when (parser.name.lowercase()) {
@@ -56,8 +54,12 @@ class ArticleFeedParser @Inject constructor() {
     var description = ""
     var image: String? = null
     val articles = mutableListOf<ParsedArticle>()
+    val depth = parser.depth
     while (parser.next() != XmlPullParser.END_DOCUMENT) {
       if (parser.eventType != XmlPullParser.START_TAG) continue
+      // Channel metadata lives one level below the root (<rss><channel>…) while RDF feeds put
+      // items directly under the root; anything deeper (e.g. <image><title>) must not match.
+      if (parser.depth > depth + 2) continue
       when (parser.name.lowercase()) {
         "title" ->
             if (title == "Untitled feed") title = parser.nextText().trim() else parser.nextText()
@@ -67,11 +69,7 @@ class ArticleFeedParser @Inject constructor() {
         "author",
         "itunes:author" -> if (author.isBlank()) author = parser.nextText().trim()
         "image",
-        "itunes:image" ->
-            image =
-                parser.getAttributeValue(null, "href")
-                    ?: parser.getAttributeValue(null, "url")
-                    ?: image
+        "itunes:image" -> image = readImageArtworkUrl(parser) ?: image
         "item" -> articles += parseRssItem(parser, sourceUrl)
       }
     }
@@ -102,6 +100,8 @@ class ArticleFeedParser @Inject constructor() {
       )
           break
       if (parser.eventType != XmlPullParser.START_TAG) continue
+      // Only direct children may set item fields; skip nested subtrees.
+      if (parser.depth != depth + 1) continue
       when (parser.name.lowercase()) {
         "title" -> title = parser.nextText().trim()
         "description",
@@ -118,11 +118,7 @@ class ArticleFeedParser @Inject constructor() {
         "updated" -> published = parseDate(parser.nextText())
         "image",
         "itunes:image",
-        "media:thumbnail" ->
-            image =
-                parser.getAttributeValue(null, "href")
-                    ?: parser.getAttributeValue(null, "url")
-                    ?: image
+        "media:thumbnail" -> image = readImageArtworkUrl(parser) ?: image
       }
     }
     val key = guid.ifBlank { url.orEmpty() }.ifBlank { "$title:$published" }
@@ -144,6 +140,8 @@ class ArticleFeedParser @Inject constructor() {
       )
           break
       if (parser.eventType != XmlPullParser.START_TAG) continue
+      // Only direct children may set feed fields; skip nested subtrees.
+      if (parser.depth != depth + 1) continue
       when (parser.name.lowercase()) {
         "title" -> title = parser.nextText().trim()
         "subtitle" -> description = parser.nextText().trim()
@@ -180,6 +178,8 @@ class ArticleFeedParser @Inject constructor() {
       )
           break
       if (parser.eventType != XmlPullParser.START_TAG) continue
+      // Only direct children may set entry fields: <source><id> must not clobber the entry id.
+      if (parser.depth != depth + 1) continue
       when (parser.name.lowercase()) {
         "title" -> title = parser.nextText().trim()
         "id" -> id = parser.nextText().trim()

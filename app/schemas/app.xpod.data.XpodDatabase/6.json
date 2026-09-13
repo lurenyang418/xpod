@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 6,
-    "identityHash": "29e72de49991c58d98fa50c61c0b4a6f",
+    "identityHash": "aa22cfd47a9da3154fdaf801a5b08536",
     "entities": [
       {
         "tableName": "PodcastEntity",
@@ -179,6 +179,25 @@
             ],
             "orders": [],
             "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_EpisodeEntity_podcastId_stableKey` ON `${TABLE_NAME}` (`podcastId`, `stableKey`)"
+          },
+          {
+            "name": "index_EpisodeEntity_publishedEpochMs",
+            "unique": false,
+            "columnNames": [
+              "publishedEpochMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_EpisodeEntity_publishedEpochMs` ON `${TABLE_NAME}` (`publishedEpochMs`)"
+          },
+          {
+            "name": "index_EpisodeEntity_podcastId_publishedEpochMs",
+            "unique": false,
+            "columnNames": [
+              "podcastId",
+              "publishedEpochMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_EpisodeEntity_podcastId_publishedEpochMs` ON `${TABLE_NAME}` (`podcastId`, `publishedEpochMs`)"
           }
         ],
         "foreignKeys": [
@@ -358,6 +377,25 @@
             ],
             "orders": [],
             "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_ArticleEntity_feedId_stableKey` ON `${TABLE_NAME}` (`feedId`, `stableKey`)"
+          },
+          {
+            "name": "index_ArticleEntity_publishedEpochMs",
+            "unique": false,
+            "columnNames": [
+              "publishedEpochMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ArticleEntity_publishedEpochMs` ON `${TABLE_NAME}` (`publishedEpochMs`)"
+          },
+          {
+            "name": "index_ArticleEntity_feedId_publishedEpochMs",
+            "unique": false,
+            "columnNames": [
+              "feedId",
+              "publishedEpochMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ArticleEntity_feedId_publishedEpochMs` ON `${TABLE_NAME}` (`feedId`, `publishedEpochMs`)"
           }
         ],
         "foreignKeys": [
@@ -562,63 +600,7 @@
           "columnNames": [
             "id"
           ]
-        },
-        "indices": [
-          {
-            "name": "index_LocalBookEntity_treeUri",
-            "unique": false,
-            "columnNames": [
-              "treeUri"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_LocalBookEntity_treeUri` ON `${TABLE_NAME}` (`treeUri`)"
-          },
-          {
-            "name": "index_LocalBookEntity_title",
-            "unique": false,
-            "columnNames": [
-              "title"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_LocalBookEntity_title` ON `${TABLE_NAME}` (`title`)"
-          },
-          {
-            "name": "index_LocalBookEntity_relativePath",
-            "unique": false,
-            "columnNames": [
-              "relativePath"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_LocalBookEntity_relativePath` ON `${TABLE_NAME}` (`relativePath`)"
-          },
-          {
-            "name": "index_LocalBookEntity_lastOpenedEpochMs",
-            "unique": false,
-            "columnNames": [
-              "lastOpenedEpochMs"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_LocalBookEntity_lastOpenedEpochMs` ON `${TABLE_NAME}` (`lastOpenedEpochMs`)"
-          },
-          {
-            "name": "index_LocalBookEntity_isFavorite",
-            "unique": false,
-            "columnNames": [
-              "isFavorite"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_LocalBookEntity_isFavorite` ON `${TABLE_NAME}` (`isFavorite`)"
-          },
-          {
-            "name": "index_LocalBookEntity_format",
-            "unique": false,
-            "columnNames": [
-              "format"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_LocalBookEntity_format` ON `${TABLE_NAME}` (`format`)"
-          }
-        ]
+        }
       },
       {
         "tableName": "BookProgressEntity",
@@ -760,7 +742,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '29e72de49991c58d98fa50c61c0b4a6f')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'aa22cfd47a9da3154fdaf801a5b08536')"
     ]
   }
 }

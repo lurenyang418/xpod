@@ -3,6 +3,7 @@ package app.xpod.data
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -40,5 +41,15 @@ class OpmlCodecTest {
     val urls = OpmlCodec.read(ByteArrayInputStream(output.toByteArray()))
     assertEquals(listOf("https://pod.example/feed", "https://news.example/feed"), urls)
     assertTrue(String(output.toByteArray()).contains("News"))
+  }
+
+  @Test
+  fun rejectsOpmlWithInternalDtdEntityDeclarations() {
+    val source =
+        """<?xml version="1.0"?><!DOCTYPE opml [<!ENTITY bomb "boom">]><opml><body><outline xmlUrl="https://one.example/feed.xml"/></body></opml>"""
+
+    assertThrows(IllegalArgumentException::class.java) {
+      OpmlCodec.read(ByteArrayInputStream(source.toByteArray()))
+    }
   }
 }

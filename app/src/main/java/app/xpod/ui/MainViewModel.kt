@@ -30,19 +30,24 @@ import app.xpod.data.SubscriptionRepository
 import app.xpod.data.ThemeMode
 import app.xpod.data.UnsupportedFeedUrlException
 import app.xpod.data.defaultTabOrder
+import app.xpod.playback.NowPlaying
 import app.xpod.playback.PlaybackController
 import app.xpod.util.runCatchingCancellable
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.IOException
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.xmlpull.v1.XmlPullParserException
@@ -229,9 +234,54 @@ constructor(
           defaultTabOrder.toSet(),
       )
   val nowPlaying = player.nowPlaying
+
+  /**
+   * [nowPlaying] with the 500 ms position ticks stripped out. Everything except the full
+   * player (the only position consumer) should collect this one, so playback does not
+   * recompose the navigation shell and every visible list row twice a second.
+   */
+  val nowPlayingDisplay: StateFlow<NowPlaying?> =
+      player.nowPlaying
+          .map { it?.copy(positionMs = 0L, durationMs = 0L) }
+          .distinctUntilChanged()
+          .stateIn(
+              viewModelScope,
+              SharingStarted.WhileSubscribed(5_000),
+              player.nowPlaying.value?.copy(positionMs = 0L, durationMs = 0L),
+          )
+
   val queue = player.queue
   val musicPlaybackSettings = player.musicPlaybackSettings
   val downloadStates = downloads.states
+
+  private val summaryParser = ArticleContentParser()
+  /** Memo cache so unchanged articles are not re-parsed on every emission: id -> (content hash, summary). */
+  private val summaryCache = HashMap<String, Pair<Int, String>>()
+
+  /**
+   * Plain-text previews per article id, derived off the main thread so list rows never run
+   * Jsoup while composing.
+   */
+  val articleSummaries: StateFlow<Map<String, String>> =
+      reader
+          .articles()
+          .map { articles ->
+            val summaries = HashMap<String, String>(articles.size)
+            articles.forEach { article ->
+              val hash = article.content.hashCode()
+              val cached = summaryCache[article.id]
+              summaries[article.id] =
+                  if (cached != null && cached.first == hash) cached.second
+                  else
+                      summaryParser.plainText(article.content).also {
+                        summaryCache[article.id] = hash to it
+                      }
+            }
+            summaryCache.keys.retainAll(summaries.keys)
+            summaries
+          }
+          .flowOn(Dispatchers.Default)
+          .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
   init {
     viewModelScope.launch {
@@ -382,13 +432,13 @@ constructor(
     _bulkActionsState.value = _bulkActionsState.value.copy(undoEvent = null)
   }
 
-  fun addFeed(url: String, onSuccess: () -> Unit = {}) = viewModelScope.launch {
+  fun addFeed(url: String, onComplete: (Boolean) -> Unit = {}) = viewModelScope.launch {
     subscriptions
         .addOrRefresh(url)
         .fold(
             {
               showStatus(context.getString(R.string.added_and_refreshed))
-              onSuccess()
+              onComplete(true)
             },
             { error ->
               Log.e("XPOD", "Unable to add feed", error)
@@ -398,6 +448,7 @@ constructor(
                       feedFailureReason(error),
                   )
               )
+              onComplete(false)
             },
         )
   }
@@ -463,7 +514,7 @@ constructor(
     podcasts.setPlayed(id, played)
   }
 
-  fun download(episode: EpisodeEntity) {
+  fun download(episode: EpisodeEntity) = viewModelScope.launch {
     if (downloads.states.value[episode.id]?.isCompleted == true) {
       downloads.remove(episode.id)
       showStatus(context.getString(R.string.download_removed))
@@ -621,10 +672,19 @@ constructor(
   }
 
   fun exportOpml(uri: Uri) = viewModelScope.launch {
-    context.contentResolver.openOutputStream(uri)?.use {
-      podcasts.exportOpml(it, reader.allFeeds())
-      showStatus(context.getString(R.string.subscriptions_exported))
-    }
+    runCatchingCancellable {
+          requireNotNull(context.contentResolver.openOutputStream(uri)) {
+                "Unable to open the selected OPML file"
+              }
+              .use { podcasts.exportOpml(it, reader.allFeeds()) }
+        }
+        .fold(
+            { showStatus(context.getString(R.string.subscriptions_exported)) },
+            { error ->
+              Log.e("XPOD", "Unable to export OPML", error)
+              showError(context.getString(R.string.could_not_export_subscriptions))
+            },
+        )
   }
 
   fun dismissStatus() {

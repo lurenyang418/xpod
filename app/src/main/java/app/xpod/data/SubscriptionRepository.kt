@@ -1,7 +1,6 @@
 package app.xpod.data
 
 import app.xpod.util.runCatchingCancellable
-import java.io.ByteArrayInputStream
 import java.io.InputStream
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -13,7 +12,6 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.xmlpull.v1.XmlPullParser
-import org.xmlpull.v1.XmlPullParserFactory
 
 sealed interface ParsedSubscription {
   data class Podcast(val feed: ParsedFeed) : ParsedSubscription
@@ -29,11 +27,9 @@ constructor(
 ) {
   fun parse(bytes: ByteArray, sourceUrl: String): ParsedSubscription {
     if (rootElementName(bytes) == "feed") {
-      return ParsedSubscription.Articles(
-          articleParser.parse(ByteArrayInputStream(bytes), sourceUrl)
-      )
+      return ParsedSubscription.Articles(articleParser.parse(bytes, sourceUrl))
     }
-    val podcast = runCatching { podcastParser.parse(ByteArrayInputStream(bytes)) }
+    val podcast = runCatching { podcastParser.parse(bytes) }
     podcast
         .getOrNull()
         ?.takeIf { it.episodes.isNotEmpty() }
@@ -41,7 +37,7 @@ constructor(
           return ParsedSubscription.Podcast(it)
         }
 
-    val articles = runCatching { articleParser.parse(ByteArrayInputStream(bytes), sourceUrl) }
+    val articles = runCatching { articleParser.parse(bytes, sourceUrl) }
     articles
         .getOrNull()
         ?.takeIf { it.articles.isNotEmpty() }
@@ -62,10 +58,7 @@ constructor(
 
   private fun rootElementName(bytes: ByteArray): String? =
       runCatching {
-            val parser =
-                XmlPullParserFactory.newInstance().newPullParser().apply {
-                  setInput(ByteArrayInputStream(bytes), null)
-                }
+            val parser = newHardenedXmlPullParser(bytes)
             while (parser.eventType != XmlPullParser.END_DOCUMENT) {
               if (parser.eventType == XmlPullParser.START_TAG)
                   return@runCatching parser.name.lowercase()

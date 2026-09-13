@@ -6,12 +6,15 @@ import android.security.keystore.KeyProperties
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import app.xpod.util.await
 import app.xpod.util.runCatchingCancellable
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
 import java.util.Base64
+import java.util.Collections
+import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -22,7 +25,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -35,8 +37,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
-import okhttp3.Call
-import okhttp3.Callback
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
@@ -89,6 +89,9 @@ class InvalidCloudMemosTokenException :
 class CloudMemosNotConfiguredException :
     IllegalStateException("Cloud Memos has not been configured")
 
+class CloudMemosCredentialsException(cause: Throwable) :
+    IllegalStateException("The stored Cloud Memos API token could not be decrypted", cause)
+
 class CloudMemosRecycleBinUnsupportedException :
     IllegalStateException("Cloud Memos recycle bin support could not be verified")
 
@@ -124,7 +127,18 @@ internal fun cloudMemoWebUrl(baseUrl: String, memoId: String): String =
         .toString()
 
 @Singleton
-class CloudMemosApi @Inject constructor(private val client: OkHttpClient) {
+class CloudMemosApi @Inject constructor(client: OkHttpClient) {
+  // The injected client is shared with media streaming, so its callTimeout must stay unset;
+  // derive a bounded copy here so a slow-dripping server cannot keep API requests alive forever.
+  private val apiClient =
+      client.newBuilder().callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS).build()
+  private val recycleBinVerifiedUrls = Collections.synchronizedSet(mutableSetOf<HttpUrl>())
+
+  /** Drops per-instance capability knowledge; call when the connection is (re)configured. */
+  fun clearCachedCapabilities() {
+    recycleBinVerifiedUrls.clear()
+  }
+
   suspend fun verify(baseUrl: HttpUrl, token: String) {
     listMemos(baseUrl, token, limit = 1)
     verifyWriteAccess(baseUrl, token)
@@ -221,6 +235,9 @@ class CloudMemosApi @Inject constructor(private val client: OkHttpClient) {
   }
 
   private suspend fun requireRecycleBinSupport(baseUrl: HttpUrl, token: String) {
+    // Positive answers are cached per base URL so deletes do not re-download openapi.json;
+    // configure()/disconnect() clear the cache via clearCachedCapabilities().
+    if (baseUrl in recycleBinVerifiedUrls) return
     val response =
         execute(
             requestBuilder(token)
@@ -245,6 +262,7 @@ class CloudMemosApi @Inject constructor(private val client: OkHttpClient) {
     if (!supportsRecycleBin) {
       throw CloudMemosRecycleBinUnsupportedException()
     }
+    recycleBinVerifiedUrls += baseUrl
   }
 
   private fun requestBuilder(token: String): Request.Builder =
@@ -283,16 +301,27 @@ class CloudMemosApi @Inject constructor(private val client: OkHttpClient) {
     if (response.statusCode != expectedCode) {
       throw httpException(response.statusCode, response.body)
     }
-    return runCatching { JSON.parseToJsonElement(response.body).jsonObject }
-        .getOrElse { error ->
-          throw CloudMemosProtocolException("Cloud Memos returned invalid JSON", error)
-        }
+    // Responses can be megabytes; keep the parse off the caller's (main) dispatcher.
+    return withContext(Dispatchers.Default) {
+      runCatching { JSON.parseToJsonElement(response.body).jsonObject }
+          .getOrElse { error ->
+            throw CloudMemosProtocolException("Cloud Memos returned invalid JSON", error)
+          }
+    }
   }
 
   private suspend fun execute(request: Request): CloudMemosResponse {
     // Never let private memo data land in the shared HTTP disk cache.
     val uncachedRequest = request.newBuilder().header("Cache-Control", "no-store").build()
-    val response = client.newCall(uncachedRequest).await()
+    val response = apiClient.newCall(uncachedRequest).await()
+    // Call.await() resumes when the HEADERS arrive; the body below is still read from the
+    // socket, so it must not run on the caller's (main) dispatcher.
+    return withContext(Dispatchers.IO) {
+      readResponse(response)
+    }
+  }
+
+  private suspend fun readResponse(response: Response): CloudMemosResponse {
     return response.use {
       if (!it.request.url.isHttps) throw InvalidCloudMemosUrlException()
       val body = requireNotNull(it.body)
@@ -372,6 +401,7 @@ class CloudMemosApi @Inject constructor(private val client: OkHttpClient) {
     const val DEFAULT_PAGE_SIZE = 20
     const val MAX_PAGE_SIZE = 50
     const val WRITE_PROBE_MEMO_ID = "00000000-0000-0000-0000-000000000000"
+    const val CALL_TIMEOUT_SECONDS = 30L
   }
 }
 
@@ -399,6 +429,7 @@ constructor(
       }
 
   suspend fun configure(baseUrl: String, token: String?) {
+    api.clearCachedCapabilities()
     val url = normalizeCloudMemosUrl(baseUrl)
     val resolvedToken =
         token?.trim()?.takeIf(String::isNotEmpty)
@@ -417,6 +448,7 @@ constructor(
   }
 
   suspend fun disconnect() {
+    api.clearCachedCapabilities()
     context.cloudMemosStore.edit { preferences ->
       preferences.remove(baseUrlKey)
       preferences.remove(encryptedTokenKey)
@@ -474,8 +506,8 @@ constructor(
     val baseUrl = preferences[baseUrlKey]?.takeIf(String::isNotBlank) ?: return null
     val encrypted = preferences[encryptedTokenKey]?.takeIf(String::isNotBlank) ?: return null
     val token =
-        runCatching { withContext(Dispatchers.IO) { cipher.decrypt(encrypted) } }.getOrNull()
-            ?: return null
+        runCatchingCancellable { withContext(Dispatchers.IO) { cipher.decrypt(encrypted) } }
+            .getOrElse { error -> throw CloudMemosCredentialsException(error) }
     return baseUrl to token
   }
 }
@@ -572,22 +604,6 @@ private val CloudMemoState.apiValue: String
         CloudMemoState.Active -> "ACTIVE"
         CloudMemoState.Archived -> "ARCHIVED"
       }
-
-private suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
-  continuation.invokeOnCancellation { cancel() }
-  enqueue(
-      object : Callback {
-        override fun onFailure(call: Call, e: IOException) {
-          if (continuation.isActive) continuation.resumeWith(Result.failure(e))
-        }
-
-        override fun onResponse(call: Call, response: Response) {
-          if (continuation.isActive) continuation.resumeWith(Result.success(response))
-          else response.close()
-        }
-      }
-  )
-}
 
 private class CloudMemosCredentialCipher {
   fun encrypt(value: String): String {

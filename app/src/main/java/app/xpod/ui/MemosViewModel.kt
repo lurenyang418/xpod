@@ -7,6 +7,7 @@ import app.xpod.data.CloudMemo
 import app.xpod.data.CloudMemoState
 import app.xpod.data.CloudMemoVisibility
 import app.xpod.data.CloudMemosConnection
+import app.xpod.data.CloudMemosCredentialsException
 import app.xpod.data.CloudMemosGateway
 import app.xpod.data.CloudMemosHttpException
 import app.xpod.data.CloudMemosNotConfiguredException
@@ -460,6 +461,7 @@ internal fun cloudMemosFailureReason(strings: MemosStrings, error: Throwable): S
       is InvalidCloudMemosUrlException -> strings.get(R.string.cloud_memos_error_https_required)
       is InvalidCloudMemosTokenException -> strings.get(R.string.cloud_memos_error_token)
       is CloudMemosNotConfiguredException -> strings.get(R.string.cloud_memos_error_not_configured)
+      is CloudMemosCredentialsException -> strings.get(R.string.cloud_memos_error_credentials)
       is CloudMemosRecycleBinUnsupportedException ->
           strings.get(R.string.cloud_memos_error_recycle_bin_required)
       is CloudMemosHttpException ->

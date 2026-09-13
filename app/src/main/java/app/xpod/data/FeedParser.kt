@@ -1,6 +1,5 @@
 package app.xpod.data
 
-import java.io.InputStream
 import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDate
@@ -10,7 +9,6 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import org.xmlpull.v1.XmlPullParser
-import org.xmlpull.v1.XmlPullParserFactory
 
 data class ParsedFeed(
     val title: String,
@@ -38,8 +36,8 @@ object FeedId {
 }
 
 class FeedParser @Inject constructor() {
-  fun parse(input: InputStream): ParsedFeed {
-    val parser = XmlPullParserFactory.newInstance().newPullParser().apply { setInput(input, null) }
+  fun parse(input: ByteArray): ParsedFeed {
+    val parser = newHardenedXmlPullParser(input)
     while (
         parser.eventType != XmlPullParser.START_TAG &&
             parser.eventType != XmlPullParser.END_DOCUMENT
@@ -57,11 +55,14 @@ class FeedParser @Inject constructor() {
     var description = ""
     var image: String? = null
     val episodes = mutableListOf<ParsedEpisode>()
+    val rootDepth = parser.depth
     var event = parser.eventType
     while (event != XmlPullParser.END_DOCUMENT) {
-      if (event == XmlPullParser.START_TAG && parser.name.equals("item", true))
-          episodes += parseItem(parser)
-      if (event == XmlPullParser.START_TAG && parser.name.equals("channel", true)) {
+      // Only direct children of the root count: <channel> for RSS, <item> siblings for RDF.
+      val isRootChild = event == XmlPullParser.START_TAG && parser.depth == rootDepth + 1
+      if (isRootChild && parser.name.equals("item", true))
+          parseItem(parser)?.let { episodes += it }
+      if (isRootChild && parser.name.equals("channel", true)) {
         val channel = parseChannel(parser)
         feedTitle = channel.title
         author = channel.author
@@ -80,7 +81,7 @@ class FeedParser @Inject constructor() {
     var description = ""
     var image: String? = null
     val episodes = mutableListOf<ParsedEpisode>()
-    var depth = parser.depth
+    val depth = parser.depth
     while (parser.next() != XmlPullParser.END_DOCUMENT) {
       if (
           parser.eventType == XmlPullParser.END_TAG &&
@@ -89,6 +90,8 @@ class FeedParser @Inject constructor() {
       )
           break
       if (parser.eventType != XmlPullParser.START_TAG) continue
+      // Only direct children may set channel fields: <image><title> must not win the title.
+      if (parser.depth != depth + 1) continue
       when (parser.name.lowercase()) {
         "title" -> title = parser.nextText().trim()
         "description",
@@ -97,18 +100,18 @@ class FeedParser @Inject constructor() {
         "author",
         "itunes:author" -> author = parser.nextText().trim()
         "image",
-        "itunes:image" ->
-            image =
-                parser.getAttributeValue(null, "href")
-                    ?: parser.getAttributeValue(null, "url")
-                    ?: image
-        "item" -> episodes += parseItem(parser)
+        "itunes:image" -> image = readImageArtworkUrl(parser) ?: image
+        "item" -> parseItem(parser)?.let { episodes += it }
       }
     }
     return ParsedFeed(title, author, description, image, episodes)
   }
 
-  private fun parseItem(parser: XmlPullParser): ParsedEpisode {
+  /**
+   * Returns null for items without a usable HTTPS audio enclosure: a single bad item must be
+   * skipped instead of rejecting the whole feed.
+   */
+  private fun parseItem(parser: XmlPullParser): ParsedEpisode? {
     var title = "Untitled episode"
     var description = ""
     var guid = ""
@@ -125,6 +128,8 @@ class FeedParser @Inject constructor() {
       )
           break
       if (parser.eventType != XmlPullParser.START_TAG) continue
+      // Only direct children may set item fields; skip nested subtrees.
+      if (parser.depth != depth + 1) continue
       when (parser.name.lowercase()) {
         "title" -> title = parser.nextText().trim()
         "description",
@@ -143,14 +148,10 @@ class FeedParser @Inject constructor() {
           if (url != null && isAudioEnclosure(url, type)) audioUrl = url
         }
         "image",
-        "itunes:image" ->
-            image =
-                parser.getAttributeValue(null, "href")
-                    ?: parser.getAttributeValue(null, "url")
-                    ?: image
+        "itunes:image" -> image = readImageArtworkUrl(parser) ?: image
       }
     }
-    require(audioUrl.startsWith("https://")) { "Episode audio must use HTTPS" }
+    if (!audioUrl.startsWith("https://", ignoreCase = true)) return null
     val key = guid.ifBlank { audioUrl }
     return ParsedEpisode(key, title, description, audioUrl, publishedEpochMs, durationMs, image)
   }
@@ -209,4 +210,30 @@ class FeedParser @Inject constructor() {
           .replace(Regex("[ \\t]+"), " ")
           .replace(Regex("\\n{3,}"), "\n\n")
           .trim()
+}
+
+/**
+ * Reads artwork from an artwork start tag (`<image>`, `<itunes:image>`, `<media:thumbnail>`):
+ * prefers the href/url attributes and falls back to the text of a direct `<url>` child element
+ * as used by plain RSS `<image>` blocks. When it falls back, it consumes the element's subtree.
+ */
+internal fun readImageArtworkUrl(parser: XmlPullParser): String? {
+  val attribute =
+      parser.getAttributeValue(null, "href")?.takeIf(String::isNotBlank)
+          ?: parser.getAttributeValue(null, "url")?.takeIf(String::isNotBlank)
+  if (attribute != null) return attribute
+  if (parser.isEmptyElementTag) return null
+  val depth = parser.depth
+  var url: String? = null
+  while (parser.next() != XmlPullParser.END_DOCUMENT) {
+    if (parser.eventType == XmlPullParser.END_TAG && parser.depth == depth) break
+    if (
+        parser.eventType == XmlPullParser.START_TAG &&
+            parser.depth == depth + 1 &&
+            parser.name.equals("url", true)
+    ) {
+      url = parser.nextText().trim().takeIf(String::isNotEmpty) ?: url
+    }
+  }
+  return url
 }

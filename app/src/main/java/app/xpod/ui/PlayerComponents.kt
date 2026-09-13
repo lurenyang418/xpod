@@ -48,7 +48,9 @@ import androidx.compose.ui.unit.dp
 import app.xpod.R
 import app.xpod.data.PlaybackMediaType
 import app.xpod.data.PodcastEntity
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.xpod.playback.NowPlaying
+import kotlinx.coroutines.flow.StateFlow
 import coil3.compose.AsyncImage
 import java.util.Locale
 
@@ -153,7 +155,9 @@ internal fun SpeedPicker(selected: Float, onSelect: (Float) -> Unit, onDismiss: 
 
 @Composable
 internal fun FullPlayerScreen(
-    nowPlaying: NowPlaying,
+    // The position-bearing flow is collected here, and only here, so the 500 ms progress
+    // ticks stay local to the full player instead of recomposing the navigation shell.
+    nowPlayingFlow: StateFlow<NowPlaying?>,
     podcast: PodcastEntity?,
     onToggle: () -> Unit,
     onSeek: (Long) -> Unit,
@@ -164,6 +168,7 @@ internal fun FullPlayerScreen(
     onShowSpeedPicker: () -> Unit,
     onOpenPodcast: () -> Unit,
 ) {
+  val nowPlaying = nowPlayingFlow.collectAsStateWithLifecycle().value ?: return
   val duration = knownDuration(nowPlaying.durationMs)
   var scrubPosition by
       remember(nowPlaying.item.id) { mutableFloatStateOf(nowPlaying.positionMs.toFloat()) }
@@ -304,9 +309,9 @@ internal fun Artwork(
       }
     }
 
-private fun speedLabel(speed: Float): String =
-    if (speed % 1f == 0f) String.format(Locale.US, "%.0fx", speed)
-    else String.format(Locale.US, "%.2gx", speed)
+/** Renders exact speed values with up to 2 decimals and no trailing zeros: "1x", "1.25x". */
+internal fun speedLabel(speed: Float): String =
+    String.format(Locale.US, "%.2f", speed).trimEnd('0').trimEnd('.') + "x"
 
 internal fun knownDuration(durationMs: Long): Long? = durationMs.takeIf { it > 0L }
 

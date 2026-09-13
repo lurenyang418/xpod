@@ -2,7 +2,6 @@ package app.xpod.data
 
 import androidx.room.withTransaction
 import app.xpod.util.runCatchingCancellable
-import java.io.ByteArrayInputStream
 import java.time.Clock
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -34,14 +33,17 @@ constructor(
       withContext(Dispatchers.IO) {
         runCatchingCancellable {
           val bytes = feedFetcher.fetch(url, FeedRequestType.Articles)
-          val parsed = parser.parse(ByteArrayInputStream(bytes), url)
-          save(url, parsed)
+          val parsed = parser.parse(bytes, url)
+          // Refresh paths must not insert: a feed the user removed while this fetch was
+          // in flight would otherwise be resurrected by the upsert below.
+          save(url, parsed, allowInsert = false)
         }
       }
 
-  internal suspend fun save(url: String, parsed: ParsedArticleFeed) {
+  internal suspend fun save(url: String, parsed: ParsedArticleFeed, allowInsert: Boolean = true) {
     val feedId = FeedId.from(url)
     database.withTransaction {
+      if (!allowInsert && database.articleFeeds().find(feedId) == null) return@withTransaction
       val existing = database.articles().allForFeed(feedId).associateBy { it.stableKey }
       database
           .articleFeeds()

@@ -192,7 +192,7 @@ internal fun QueueSheet(
               var menuExpanded by remember { mutableStateOf(false) }
               Box {
                 IconButton(onClick = { menuExpanded = true }) {
-                  Icon(Icons.Filled.MoreVert, stringResource(R.string.queue))
+                  Icon(Icons.Filled.MoreVert, stringResource(R.string.queue_item_actions))
                 }
                 DropdownMenu(
                     expanded = menuExpanded,

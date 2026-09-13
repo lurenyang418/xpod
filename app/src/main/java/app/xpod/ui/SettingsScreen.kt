@@ -86,7 +86,7 @@ internal fun SettingsScreen(
     setReadingLineHeight: (Float) -> Unit,
     setReadingTheme: (ReadingTheme) -> Unit,
     showQueue: () -> Unit,
-    add: (String, () -> Unit) -> Unit,
+    add: (String, (Boolean) -> Unit) -> Unit,
     importOpml: (Uri) -> Unit,
     exportOpml: (Uri) -> Unit,
     configureCloudMemos: (String, String, () -> Unit) -> Unit,
@@ -145,7 +145,7 @@ internal fun SettingsScreen(
       }
     }
     item {
-      SettingsCard(stringResource(R.string.reading_theme), Icons.Filled.FormatSize) {
+      SettingsCard(stringResource(R.string.reading_settings), Icons.Filled.FormatSize) {
         Text(
             stringResource(R.string.reading_font_size),
             style = MaterialTheme.typography.titleSmall,
@@ -459,10 +459,11 @@ private fun TabOrderDialog(
 
 @Composable
 private fun AddSubscriptionDialog(
-    add: (String, () -> Unit) -> Unit,
+    add: (String, (Boolean) -> Unit) -> Unit,
     onDismiss: () -> Unit,
 ) {
   var url by rememberSaveable { mutableStateOf("") }
+  var submitting by remember { mutableStateOf(false) }
   AlertDialog(
       onDismissRequest = onDismiss,
       title = { Text(stringResource(R.string.add_subscription)) },
@@ -478,8 +479,11 @@ private fun AddSubscriptionDialog(
       },
       confirmButton = {
         Button(
-            onClick = { add(url) { onDismiss() } },
-            enabled = url.startsWith("https://", ignoreCase = true),
+            onClick = {
+              submitting = true
+              add(url) { success -> if (success) onDismiss() else submitting = false }
+            },
+            enabled = !submitting && url.startsWith("https://", ignoreCase = true),
         ) {
           Text(stringResource(R.string.add_feed))
         }
@@ -498,7 +502,8 @@ private fun CloudMemosDialog(
     onDismiss: () -> Unit,
 ) {
   var baseUrl by rememberSaveable(state.baseUrl) { mutableStateOf(state.baseUrl) }
-  var token by rememberSaveable { mutableStateOf("") }
+  // The API token is a secret: keep it out of saved instance state (plain remember only).
+  var token by remember { mutableStateOf("") }
   AlertDialog(
       onDismissRequest = onDismiss,
       title = { Text(stringResource(R.string.cloud_memos)) },

@@ -80,25 +80,21 @@ object XpodDatabaseMigrations {
               "CREATE TABLE IF NOT EXISTS `LocalBookEntity` (`id` TEXT NOT NULL, `documentUri` TEXT NOT NULL, `treeUri` TEXT NOT NULL, `title` TEXT NOT NULL, `author` TEXT NOT NULL, `language` TEXT NOT NULL, `format` TEXT NOT NULL, `fileSizeBytes` INTEGER NOT NULL, `modifiedEpochMs` INTEGER NOT NULL, `relativePath` TEXT NOT NULL, `coverCachePath` TEXT, `addedEpochMs` INTEGER NOT NULL, `lastOpenedEpochMs` INTEGER NOT NULL, `isFavorite` INTEGER NOT NULL, PRIMARY KEY(`id`))"
           )
           db.execSQL(
-              "CREATE INDEX IF NOT EXISTS `index_LocalBookEntity_treeUri` ON `LocalBookEntity` (`treeUri`)"
-          )
-          db.execSQL(
-              "CREATE INDEX IF NOT EXISTS `index_LocalBookEntity_title` ON `LocalBookEntity` (`title`)"
-          )
-          db.execSQL(
-              "CREATE INDEX IF NOT EXISTS `index_LocalBookEntity_relativePath` ON `LocalBookEntity` (`relativePath`)"
-          )
-          db.execSQL(
-              "CREATE INDEX IF NOT EXISTS `index_LocalBookEntity_lastOpenedEpochMs` ON `LocalBookEntity` (`lastOpenedEpochMs`)"
-          )
-          db.execSQL(
-              "CREATE INDEX IF NOT EXISTS `index_LocalBookEntity_isFavorite` ON `LocalBookEntity` (`isFavorite`)"
-          )
-          db.execSQL(
-              "CREATE INDEX IF NOT EXISTS `index_LocalBookEntity_format` ON `LocalBookEntity` (`format`)"
-          )
-          db.execSQL(
               "CREATE TABLE IF NOT EXISTS `BookProgressEntity` (`bookId` TEXT NOT NULL, `positionVersion` INTEGER NOT NULL, `positionJson` TEXT NOT NULL, `sourceModifiedEpochMs` INTEGER NOT NULL, `updatedEpochMs` INTEGER NOT NULL, `readingSeconds` INTEGER NOT NULL, PRIMARY KEY(`bookId`))"
+          )
+          // The episode and article tables predate v6, so the ORDER BY-serving indices added
+          // to their entities in this version must be created here as well.
+          db.execSQL(
+              "CREATE INDEX IF NOT EXISTS `index_EpisodeEntity_publishedEpochMs` ON `EpisodeEntity` (`publishedEpochMs`)"
+          )
+          db.execSQL(
+              "CREATE INDEX IF NOT EXISTS `index_EpisodeEntity_podcastId_publishedEpochMs` ON `EpisodeEntity` (`podcastId`, `publishedEpochMs`)"
+          )
+          db.execSQL(
+              "CREATE INDEX IF NOT EXISTS `index_ArticleEntity_publishedEpochMs` ON `ArticleEntity` (`publishedEpochMs`)"
+          )
+          db.execSQL(
+              "CREATE INDEX IF NOT EXISTS `index_ArticleEntity_feedId_publishedEpochMs` ON `ArticleEntity` (`feedId`, `publishedEpochMs`)"
           )
         }
       }

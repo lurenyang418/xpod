@@ -306,6 +306,48 @@ class CloudMemosApiTest {
   }
 
   @Test
+  fun deleteMemoVerifiesRecycleBinSupportOnlyOncePerInstance() = runTest {
+    val requests = mutableListOf<Request>()
+    val api =
+        CloudMemosApi(
+            client { incoming ->
+              requests += incoming
+              if (incoming.url.encodedPath.endsWith("/openapi.json")) {
+                response(
+                    incoming,
+                    200,
+                    """{
+                      "paths": {
+                        "/api/v1/memos/{id}/restore": {"post": {}},
+                        "/api/v1/memos/{id}/permanent": {"delete": {}}
+                      }
+                    }""",
+                )
+              } else {
+                response(incoming, 204, "")
+              }
+            }
+        )
+    val baseUrl = normalizeCloudMemosUrl("https://memos.example.com/base")
+
+    api.deleteMemo(baseUrl, TOKEN, memoId = "memo-one")
+    api.deleteMemo(baseUrl, TOKEN, memoId = "memo-two")
+
+    assertEquals(
+        listOf("GET", "DELETE", "DELETE"),
+        requests.map { it.method },
+    )
+
+    api.clearCachedCapabilities()
+    api.deleteMemo(baseUrl, TOKEN, memoId = "memo-three")
+
+    assertEquals(
+        listOf("GET", "DELETE", "DELETE", "GET", "DELETE"),
+        requests.map { it.method },
+    )
+  }
+
+  @Test
   fun deleteMemoRefusesServerWithoutRecycleBinSupport() = runTest {
     val requests = mutableListOf<Request>()
     val api =

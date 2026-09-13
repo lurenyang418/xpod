@@ -125,6 +125,7 @@
     <string name="subscription_removed">订阅已删除</string>
     <string name="could_not_remove_subscription">无法删除订阅</string>
     <string name="queue">播放队列</string>
+    <string name="queue_item_actions">队列项操作</string>
     <string name="shuffle_off">随机播放已关闭</string>
     <string name="shuffle_on">随机播放已开启</string>
     <string name="repeat_off">循环播放已关闭</string>
@@ -163,6 +164,7 @@
         <item quantity="other">已导入 %1$d/%2$d 个订阅（%3$d 个失败，其中 %4$d 个非 HTTPS 地址被拒绝）</item>
     </plurals>
     <string name="subscriptions_exported">订阅已导出</string>
+    <string name="could_not_export_subscriptions">无法导出订阅</string>
     <string name="cloud_memos">Cloud Memos</string>
     <string name="cloud_memos_summary">连接实例后，可将播客单集和文章保存为私有 Markdown Memo。</string>
     <string name="cloud_memos_instance_url">实例地址</string>
@@ -181,6 +183,7 @@
     <string name="cloud_memos_error_https_required">请输入有效的 HTTPS 实例地址</string>
     <string name="cloud_memos_error_token">请输入有效的 cm_pat_ API 令牌</string>
     <string name="cloud_memos_error_not_configured">请先在设置中完成连接</string>
+    <string name="cloud_memos_error_credentials">无法读取已保存的 API 令牌，请在设置中重新连接</string>
     <string name="cloud_memos_error_recycle_bin_required">删除 Memo 前，请先将 Cloud Memos 升级到 v0.3.0 或更高版本</string>
     <string name="cloud_memos_error_unauthorized">API 令牌无效、已过期或已撤销</string>
     <string name="cloud_memos_error_scope">API 令牌需要读写权限</string>
@@ -293,6 +296,7 @@
     <string name="could_not_update_book">无法更新书籍</string>
     <string name="could_not_open_book">无法打开这本书</string>
     <string name="unsupported_format">不支持此书籍格式</string>
+    <string name="reading_settings">阅读设置</string>
     <string name="reading_font_size">字号</string>
     <string name="reading_line_height">行距</string>
     <string name="reading_theme">阅读主题</string>

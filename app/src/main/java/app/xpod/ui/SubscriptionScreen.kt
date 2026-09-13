@@ -33,7 +33,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -214,12 +213,10 @@ private fun PodcastList(
               Modifier.weight(1f),
               style = MaterialTheme.typography.headlineSmall,
           )
-          if (isRefreshing) {
-            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-          } else {
-            IconButton(onClick = refreshAll) {
-              Icon(Icons.Filled.Refresh, stringResource(R.string.refresh_all_podcasts))
-            }
+          // The PullToRefreshBox indicator is the single refresh spinner; the button
+          // only disables while a refresh is running.
+          IconButton(onClick = refreshAll, enabled = !isRefreshing) {
+            Icon(Icons.Filled.Refresh, stringResource(R.string.refresh_all_podcasts))
           }
           IconButton(onClick = showQueue) {
             Icon(Icons.AutoMirrored.Filled.QueueMusic, stringResource(R.string.queue))

@@ -2,6 +2,7 @@ package app.xpod.data
 
 import android.content.Context
 import android.os.StatFs
+import android.util.Log
 import androidx.core.net.toUri
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -21,15 +22,17 @@ import app.xpod.download.DownloadPreferences
 import app.xpod.download.XpodDownloadService
 import app.xpod.util.runCatchingCancellable
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.io.ByteArrayInputStream
 import java.io.OutputStream
 import java.time.Clock
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -163,15 +166,18 @@ constructor(
       withContext(Dispatchers.IO) {
         runCatchingCancellable {
           val bytes = feedFetcher.fetch(feedUrl, FeedRequestType.Podcast)
-          val parsed = parser.parse(ByteArrayInputStream(bytes))
-          save(feedUrl, parsed)
+          val parsed = parser.parse(bytes)
+          // Refresh paths must not insert: a subscription the user removed while this
+          // fetch was in flight would otherwise be resurrected by the upsert below.
+          save(feedUrl, parsed, allowInsert = false)
         }
       }
 
-  internal suspend fun save(feedUrl: String, parsed: ParsedFeed) {
+  internal suspend fun save(feedUrl: String, parsed: ParsedFeed, allowInsert: Boolean = true) {
     val podcastId = FeedId.from(feedUrl)
     database.withTransaction {
       val isExistingSubscription = database.podcasts().find(podcastId) != null
+      if (!isExistingSubscription && !allowInsert) return@withTransaction
       val existingEpisodes =
           database.episodes().allForPodcast(podcastId).associateBy { it.stableKey }
       database
@@ -222,15 +228,24 @@ constructor(
 
   suspend fun remove(podcastId: String): Set<String> =
       withContext(Dispatchers.IO) {
-        val episodes = database.episodes().allForPodcast(podcastId)
-        episodes.forEach { downloads.remove(it.id) }
-        val episodeIds = episodes.map(EpisodeEntity::id)
-        database.withTransaction {
-          database.playback().removeQueueEpisodesForPodcast(podcastId)
-          database.playback().clearStateForPodcast(podcastId)
-          database.podcasts().delete(podcastId)
+        // Read the episode list inside the transaction so it matches what is deleted.
+        val episodeIds =
+            database.withTransaction {
+              val ids =
+                  database.episodes().allForPodcast(podcastId).map(EpisodeEntity::id).toSet()
+              database.playback().removeQueueEpisodesForPodcast(podcastId)
+              database.playback().clearStateForPodcast(podcastId)
+              database.podcasts().delete(podcastId)
+              ids
+            }
+        // The unsubscribe is committed; download cleanup is best effort, only for episodes
+        // that actually have a download entry, and one failure must not abort the rest.
+        val downloadedIds = downloads.states.value.keys
+        episodeIds.filter { it in downloadedIds }.forEach { episodeId ->
+          runCatching { downloads.remove(episodeId) }
+              .onFailure { Log.w("XPOD", "Unable to remove download for $episodeId", it) }
         }
-        episodeIds.toSet()
+        episodeIds
       }
 
   suspend fun refreshAll(): FeedRefreshResult = coroutineScope {
@@ -288,7 +303,10 @@ constructor(
   suspend fun exportOpml(
       output: OutputStream,
       articleFeeds: List<ArticleFeedEntity> = emptyList(),
-  ) = OpmlCodec.write(output, database.podcasts().all(), articleFeeds)
+  ) =
+      withContext(Dispatchers.IO) {
+        OpmlCodec.write(output, database.podcasts().all(), articleFeeds)
+      }
 
   private companion object {
     const val MAX_CONCURRENT_REFRESHES = 4
@@ -537,103 +555,162 @@ constructor(
   private val _states = MutableStateFlow<Map<String, DownloadState>>(emptyMap())
   val states: StateFlow<Map<String, DownloadState>> = _states.asStateFlow()
   private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-  private val manager: DownloadManager =
-      run {
-            DownloadComponent.configure(OkHttpDataSource.Factory(okHttpClient))
-            DownloadComponent.manager(context)
-          }
-          .also { manager ->
-            manager.addListener(
-                object : DownloadManager.Listener {
-                  override fun onDownloadChanged(
-                      downloadManager: DownloadManager,
-                      download: Download,
-                      finalException: Exception?,
-                  ) = refreshStates(downloadManager)
+  // All state refreshes run on a single worker so a slower, stale snapshot can never
+  // overwrite a newer one (which could leave a finished download shown as in-progress).
+  private val refreshScope =
+      CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
+  // Only touched from refreshScope, which runs one coroutine at a time.
+  private var progressPollJob: Job? = null
 
-                  override fun onDownloadRemoved(
-                      downloadManager: DownloadManager,
-                      download: Download,
-                  ) = refreshStates(downloadManager)
-                }
-            )
-            refreshStates(manager)
-          }
+  // Building the DownloadManager scans the download directory and opens SQLite; keep that
+  // off the main thread that constructs this repository.
+  private val manager: Deferred<DownloadManager> =
+      syncScope.async {
+        // Strip the shared OkHttp HTTP cache for episode downloads: a full episode GET is
+        // cacheable and would evict the small feed cache while SimpleCache already stores
+        // the audio. The connection pool and dispatcher stay shared.
+        DownloadComponent.configure(
+            OkHttpDataSource.Factory(okHttpClient.newBuilder().cache(null).build())
+        )
+        DownloadComponent.manager(context).also { manager ->
+          manager.addListener(
+              object : DownloadManager.Listener {
+                override fun onDownloadChanged(
+                    downloadManager: DownloadManager,
+                    download: Download,
+                    finalException: Exception?,
+                ) = refreshStates(downloadManager)
 
-  fun enqueue(episode: EpisodeEntity): Result<Unit> = runCatching { enqueueOrThrow(episode) }
+                override fun onDownloadRemoved(
+                    downloadManager: DownloadManager,
+                    download: Download,
+                ) = refreshStates(downloadManager)
+
+                // Losing or regaining an allowed network must re-render queued items as
+                // waiting-for-network (and back) instead of leaving a stale "Queued".
+                override fun onRequirementsStateChanged(
+                    downloadManager: DownloadManager,
+                    requirements: Requirements,
+                    notMetRequirements: Int,
+                ) = refreshStates(downloadManager)
+
+                override fun onDownloadsPausedChanged(
+                    downloadManager: DownloadManager,
+                    downloadsPaused: Boolean,
+                ) = refreshStates(downloadManager)
+              }
+          )
+          refreshStates(manager)
+        }
+      }
+
+  suspend fun enqueue(episode: EpisodeEntity): Result<Unit> = runCatchingCancellable {
+    enqueueOrThrow(episode)
+  }
 
   fun remove(episodeId: String) {
     DownloadService.sendRemoveDownload(context, XpodDownloadService::class.java, episodeId, false)
   }
 
-  fun retry(episode: EpisodeEntity): Result<Unit> = runCatching {
+  suspend fun retry(episode: EpisodeEntity): Result<Unit> = runCatchingCancellable {
     remove(episode.id)
     enqueueOrThrow(episode)
   }
 
   fun setWifiOnly(enabled: Boolean) {
     DownloadPreferences.setWifiOnly(context, enabled)
-    manager.requirements =
-        Requirements(if (enabled) Requirements.NETWORK_UNMETERED else Requirements.NETWORK)
-    refreshStates(manager)
-  }
-
-  private fun refreshStates(manager: DownloadManager) {
-    val waitingForNetwork = manager.notMetRequirements != 0
     syncScope.launch {
-      val downloads =
-          runCatchingCancellable {
-                manager.downloadIndex.getDownloads().use { cursor ->
-                  buildList { while (cursor.moveToNext()) add(cursor.download) }
-                }
-              }
-              .getOrElse {
-                return@launch
-              }
-      _states.value =
-          downloads
-              .mapNotNull { download ->
-                when (download.state) {
-                  Download.STATE_QUEUED,
-                  Download.STATE_STOPPED ->
-                      DownloadState(
-                          progress = download.percentDownloaded.takeIf { it >= 0f }?.div(100f),
-                          bytesDownloaded = download.bytesDownloaded,
-                          phase =
-                              if (waitingForNetwork) DownloadPhase.WaitingForNetwork
-                              else DownloadPhase.Queued,
-                      )
-                  Download.STATE_DOWNLOADING,
-                  Download.STATE_RESTARTING ->
-                      DownloadState(
-                          progress = download.percentDownloaded.takeIf { it >= 0f }?.div(100f),
-                          bytesDownloaded = download.bytesDownloaded,
-                          phase = DownloadPhase.Downloading,
-                      )
-                  Download.STATE_COMPLETED ->
-                      DownloadState(
-                          progress = 1f,
-                          bytesDownloaded = download.bytesDownloaded,
-                          isCompleted = true,
-                      )
-                  Download.STATE_FAILED ->
-                      DownloadState(
-                          progress = download.percentDownloaded.takeIf { it >= 0f }?.div(100f),
-                          bytesDownloaded = download.bytesDownloaded,
-                          phase = DownloadPhase.Failed,
-                      )
-                  else -> null
-                }?.let { download.request.id to it }
-              }
-              .toMap()
+      val manager = manager.await()
+      manager.requirements =
+          Requirements(if (enabled) Requirements.NETWORK_UNMETERED else Requirements.NETWORK)
+      refreshStates(manager)
     }
   }
 
-  private fun enqueueOrThrow(episode: EpisodeEntity) {
-    val available = StatFs(DownloadComponent.downloadDirectory(context).path).availableBytes
-    require(available >= 500L * 1024 * 1024) { "At least 500 MiB of free storage is required" }
-    val request = DownloadRequest.Builder(episode.id, episode.audioUrl.toUri()).build()
-    DownloadService.sendAddDownload(context, XpodDownloadService::class.java, request, false)
+  private fun refreshStates(manager: DownloadManager) {
+    refreshScope.launch { refreshStatesNow(manager) }
+  }
+
+  private fun refreshStatesNow(manager: DownloadManager) {
+    val waitingForNetwork = manager.notMetRequirements != 0
+    val downloads =
+        runCatching {
+              manager.downloadIndex.getDownloads().use { cursor ->
+                buildList { while (cursor.moveToNext()) add(cursor.download) }
+              }
+            }
+            .getOrElse {
+              return
+            }
+    // The download index is only written on state transitions; the manager's current
+    // downloads carry live progress, so prefer those snapshots where available.
+    val liveDownloads = manager.currentDownloads.associateBy { it.request.id }
+    _states.value =
+        downloads
+            .mapNotNull { indexed ->
+              val download = liveDownloads[indexed.request.id] ?: indexed
+              when (download.state) {
+                Download.STATE_QUEUED,
+                Download.STATE_STOPPED ->
+                    DownloadState(
+                        progress = download.percentDownloaded.takeIf { it >= 0f }?.div(100f),
+                        bytesDownloaded = download.bytesDownloaded,
+                        phase =
+                            if (waitingForNetwork) DownloadPhase.WaitingForNetwork
+                            else DownloadPhase.Queued,
+                    )
+                Download.STATE_DOWNLOADING,
+                Download.STATE_RESTARTING ->
+                    DownloadState(
+                        progress = download.percentDownloaded.takeIf { it >= 0f }?.div(100f),
+                        bytesDownloaded = download.bytesDownloaded,
+                        phase = DownloadPhase.Downloading,
+                    )
+                Download.STATE_COMPLETED ->
+                    DownloadState(
+                        progress = 1f,
+                        bytesDownloaded = download.bytesDownloaded,
+                        isCompleted = true,
+                    )
+                Download.STATE_FAILED ->
+                    DownloadState(
+                        progress = download.percentDownloaded.takeIf { it >= 0f }?.div(100f),
+                        bytesDownloaded = download.bytesDownloaded,
+                        phase = DownloadPhase.Failed,
+                    )
+                else -> null
+              }?.let { download.request.id to it }
+            }
+            .toMap()
+    updateProgressPolling(manager)
+  }
+
+  // DownloadManager.Listener has no progress callback, so percentages would freeze between
+  // state transitions; poll while a download is actively transferring and stop when none is.
+  private fun updateProgressPolling(manager: DownloadManager) {
+    val transferring = manager.currentDownloads.any { it.state == Download.STATE_DOWNLOADING }
+    if (!transferring) {
+      progressPollJob?.cancel()
+      progressPollJob = null
+    } else if (progressPollJob?.isActive != true) {
+      progressPollJob = refreshScope.launch {
+        while (true) {
+          delay(1_000)
+          refreshStatesNow(manager)
+        }
+      }
+    }
+  }
+
+  private suspend fun enqueueOrThrow(episode: EpisodeEntity) {
+    withContext(Dispatchers.IO) {
+      val available = StatFs(DownloadComponent.downloadDirectory(context).path).availableBytes
+      require(available >= 500L * 1024 * 1024) { "At least 500 MiB of free storage is required" }
+      val request = DownloadRequest.Builder(episode.id, episode.audioUrl.toUri()).build()
+      // Enqueues are user-initiated while the app is in the foreground, so a foreground
+      // service start is both allowed and required (background starts throw on Android 12+).
+      DownloadService.sendAddDownload(context, XpodDownloadService::class.java, request, true)
+    }
   }
 }
 

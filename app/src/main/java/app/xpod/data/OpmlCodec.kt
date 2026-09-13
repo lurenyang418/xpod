@@ -3,11 +3,10 @@ package app.xpod.data
 import java.io.InputStream
 import java.io.OutputStream
 import org.xmlpull.v1.XmlPullParser
-import org.xmlpull.v1.XmlPullParserFactory
 
 object OpmlCodec {
   fun read(input: InputStream): List<String> {
-    val parser = XmlPullParserFactory.newInstance().newPullParser().apply { setInput(input, null) }
+    val parser = newHardenedXmlPullParser(input.readBytes())
     val urls = linkedSetOf<String>()
     while (parser.next() != XmlPullParser.END_DOCUMENT) {
       if (parser.eventType == XmlPullParser.START_TAG && parser.name.equals("outline", true)) {

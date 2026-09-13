@@ -1,11 +1,14 @@
 package app.xpod.ui
 
+import app.xpod.R
 import app.xpod.data.CloudMemo
 import app.xpod.data.CloudMemoPage
 import app.xpod.data.CloudMemoState
 import app.xpod.data.CloudMemoVisibility
 import app.xpod.data.CloudMemosConnection
+import app.xpod.data.CloudMemosCredentialsException
 import app.xpod.data.CloudMemosGateway
+import app.xpod.data.CloudMemosNotConfiguredException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -246,6 +249,21 @@ class MemosViewModelTest {
     dispatcher.scheduler.advanceUntilIdle()
 
     assertEquals(listOf("fresh"), vm.memosState.value.items.map { it.id })
+  }
+
+  @Test
+  fun `credential decryption failures are not reported as not configured`() {
+    assertEquals(
+        "R:${R.string.cloud_memos_error_credentials}",
+        cloudMemosFailureReason(
+            fakeStrings(),
+            CloudMemosCredentialsException(RuntimeException("keystore")),
+        ),
+    )
+    assertEquals(
+        "R:${R.string.cloud_memos_error_not_configured}",
+        cloudMemosFailureReason(fakeStrings(), CloudMemosNotConfiguredException()),
+    )
   }
 }
 

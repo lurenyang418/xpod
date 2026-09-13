@@ -13,6 +13,7 @@ import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadService
 import androidx.media3.exoplayer.scheduler.Requirements
+import androidx.media3.exoplayer.workmanager.WorkManagerScheduler
 import app.xpod.R
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.File
@@ -24,11 +25,19 @@ object DownloadComponent {
   private var cache: SimpleCache? = null
   private var manager: DownloadManager? = null
   private var upstream: HttpDataSource.Factory? = null
+  private var databaseProvider: StandaloneDatabaseProvider? = null
 
   @Synchronized
   fun configure(upstreamFactory: HttpDataSource.Factory) {
     upstream = upstreamFactory
   }
+
+  // Media3 expects a single database provider per app; two SQLiteOpenHelpers over the
+  // same exoplayer_internal.db invite lock contention and index corruption.
+  @Synchronized
+  private fun databaseProvider(context: Context): StandaloneDatabaseProvider =
+      databaseProvider
+          ?: StandaloneDatabaseProvider(context.applicationContext).also { databaseProvider = it }
 
   @Synchronized
   fun cache(context: Context): SimpleCache =
@@ -36,7 +45,7 @@ object DownloadComponent {
           ?: SimpleCache(
                   downloadDirectory(context),
                   NoOpCacheEvictor(),
-                  StandaloneDatabaseProvider(context),
+                  databaseProvider(context),
               )
               .also { cache = it }
 
@@ -45,7 +54,7 @@ object DownloadComponent {
       manager
           ?: DownloadManager(
                   context,
-                  StandaloneDatabaseProvider(context),
+                  databaseProvider(context),
                   cache(context),
                   upstream ?: DefaultHttpDataSource.Factory(),
                   Runnable::run,
@@ -80,11 +89,18 @@ class XpodDownloadService :
   @Inject lateinit var okHttpClient: OkHttpClient
 
   override fun getDownloadManager(): DownloadManager {
-    DownloadComponent.configure(OkHttpDataSource.Factory(okHttpClient))
+    // Strip the shared OkHttp HTTP cache for episode downloads: a full episode GET is
+    // cacheable and would evict the small feed cache while SimpleCache already stores the
+    // audio. The connection pool and dispatcher stay shared.
+    DownloadComponent.configure(
+        OkHttpDataSource.Factory(okHttpClient.newBuilder().cache(null).build())
+    )
     return DownloadComponent.manager(this)
   }
 
-  override fun getScheduler() = null
+  // Restarts the service when download requirements (for example unmetered wifi) become
+  // met again or after process death; the manifest RESTART intent filter relies on it.
+  override fun getScheduler() = WorkManagerScheduler(this, "xpod-downloads")
 
   override fun getForegroundNotification(
       downloads: MutableList<Download>,

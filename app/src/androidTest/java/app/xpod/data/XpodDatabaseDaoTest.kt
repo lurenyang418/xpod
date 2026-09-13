@@ -52,6 +52,35 @@ class XpodDatabaseDaoTest {
   }
 
   @Test
+  fun refreshSaveDoesNotResurrectARemovedFeed() = runBlocking {
+    val reader =
+        ReaderRepository(
+            database,
+            FeedFetcher(okhttp3.OkHttpClient()),
+            ArticleFeedParser(),
+            Clock.fixed(Instant.ofEpochMilli(1_000L), ZoneOffset.UTC),
+        )
+    val url = "https://example.com/articles.xml"
+    val parsed =
+        ParsedArticleFeed(
+            title = "Feed",
+            author = "Author",
+            description = "",
+            artworkUrl = null,
+            articles = emptyList(),
+        )
+
+    reader.save(url, parsed, allowInsert = false)
+    assertNull(database.articleFeeds().find(FeedId.from(url)))
+
+    reader.save(url, parsed)
+    assertEquals("Feed", database.articleFeeds().find(FeedId.from(url))?.title)
+
+    reader.save(url, parsed.copy(title = "Refreshed"), allowInsert = false)
+    assertEquals("Refreshed", database.articleFeeds().find(FeedId.from(url))?.title)
+  }
+
+  @Test
   fun removedEpisodesAreDroppedFromQueueAndPlaybackState() = runBlocking {
     val first = episode()
     val second =

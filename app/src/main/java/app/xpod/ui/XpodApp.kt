@@ -12,6 +12,7 @@ import android.net.Uri
 import androidx.core.net.toUri
 import android.os.PersistableBundle
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -64,23 +65,26 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.xpod.R
@@ -108,6 +112,17 @@ fun XpodApp(viewModel: MainViewModel = hiltViewModel()) {
         ThemeMode.Dark -> true
       }
   val context = LocalContext.current
+  val view = LocalView.current
+  val activity = LocalActivity.current
+  if (!view.isInEditMode) {
+    SideEffect {
+      activity?.window?.let { window ->
+        val controller = WindowCompat.getInsetsController(window, view)
+        controller.isAppearanceLightStatusBars = !dark
+        controller.isAppearanceLightNavigationBars = !dark
+      }
+    }
+  }
   val notificationPermission =
       rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
   val requestNotificationPermission =
@@ -145,7 +160,9 @@ private fun XpodHome(
   val context = LocalContext.current
   val resources = LocalResources.current
   val state by viewModel.state.collectAsStateWithLifecycle()
-  val nowPlaying by viewModel.nowPlaying.collectAsStateWithLifecycle()
+  val articleSummaries by viewModel.articleSummaries.collectAsStateWithLifecycle()
+  // Position-free view: the full player collects the ticking flow itself.
+  val nowPlaying by viewModel.nowPlayingDisplay.collectAsStateWithLifecycle()
   val miniSummary =
       remember(nowPlaying) {
         nowPlaying?.let {
@@ -294,7 +311,7 @@ private fun XpodHome(
 
   LaunchedEffect(visibleTabs, destination) {
     if (destination !in visibleTabs) {
-      destination = AppTab.Settings
+      destination = visibleTabs.firstOrNull() ?: AppTab.Settings
       selectedEpisodeId = null
       selectedArticleId = null
       selectedBookId = null
@@ -511,12 +528,13 @@ private fun XpodHome(
         selectedBookId != null -> "book"
         else -> "tab:${destination.name}"
       }
+  val saveableStateHolder = rememberSaveableStateHolder()
   val content: @Composable () -> Unit = {
     when {
       fullPlayer && nowPlaying != null -> {
         val playing = requireNotNull(nowPlaying)
         FullPlayerScreen(
-            nowPlaying = playing,
+            nowPlayingFlow = viewModel.nowPlaying,
             podcast = state.podcasts.firstOrNull { it.id == playing.item.sourceId },
             onToggle = togglePlayback,
             onSeek = viewModel::seekTo,
@@ -625,6 +643,7 @@ private fun XpodHome(
       destination == AppTab.Reader ->
           ReaderScreen(
               state = state,
+              summaries = articleSummaries,
               refresh = viewModel::refreshArticles,
               openArticle = { article ->
                 viewModel.markArticleRead(article.id)
@@ -687,7 +706,7 @@ private fun XpodHome(
               setReadingLineHeight = viewModel::setReadingLineHeight,
               setReadingTheme = viewModel::setReadingTheme,
               showQueue = { showQueue = true },
-              add = { url, onSuccess -> viewModel.addFeed(url, onSuccess) },
+              add = { url, onComplete -> viewModel.addFeed(url, onComplete) },
               importOpml = viewModel::importOpml,
               exportOpml = viewModel::exportOpml,
               configureCloudMemos = viewModel::configureCloudMemos,
@@ -750,17 +769,15 @@ private fun XpodHome(
               visibleTabs.forEach { item ->
                 NavigationRailItem(
                     selected = item == destination,
-                    onClick = {
-                      destination = item
-                      selectedEpisodeId = null
-                      selectedArticleId = null
-                    },
+                    onClick = { selectDestination(item) },
                     icon = { DestinationIcon(item) },
                     label = { Text(destinationLabel(item)) },
                 )
               }
             }
-        key(contentRouteId) { content() }
+        // SaveableStateProvider (unlike a bare key()) restores each route's rememberSaveable
+        // state and scroll positions when the user navigates back to it.
+        saveableStateHolder.SaveableStateProvider(contentRouteId) { content() }
       }
     }
   }

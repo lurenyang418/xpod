@@ -132,6 +132,7 @@
     <string name="subscription_removed">Subscription removed</string>
     <string name="could_not_remove_subscription">Could not remove subscription</string>
     <string name="queue">Queue</string>
+    <string name="queue_item_actions">Queue item actions</string>
     <string name="shuffle_off">Shuffle off</string>
     <string name="shuffle_on">Shuffle on</string>
     <string name="repeat_off">Repeat off</string>
@@ -173,6 +174,7 @@
         <item quantity="other">Imported %1$d of %2$d subscriptions (%3$d failed; %4$d non-HTTPS URLs rejected)</item>
     </plurals>
     <string name="subscriptions_exported">Subscriptions exported</string>
+    <string name="could_not_export_subscriptions">Could not export subscriptions</string>
     <string name="cloud_memos">Cloud Memos</string>
     <string name="cloud_memos_summary">Connect an instance to save podcast episodes and articles as private Markdown memos.</string>
     <string name="cloud_memos_instance_url">Instance URL</string>
@@ -191,6 +193,7 @@
     <string name="cloud_memos_error_https_required">Enter a valid HTTPS instance URL</string>
     <string name="cloud_memos_error_token">Enter a valid cm_pat_ API token</string>
     <string name="cloud_memos_error_not_configured">Configure a connection in Settings first</string>
+    <string name="cloud_memos_error_credentials">The saved API token could not be read. Reconnect in Settings.</string>
     <string name="cloud_memos_error_recycle_bin_required">Upgrade Cloud Memos to v0.3.0 or newer before deleting memos</string>
     <string name="cloud_memos_error_unauthorized">The API token is invalid, expired, or revoked</string>
     <string name="cloud_memos_error_scope">The API token needs read-write permission</string>
@@ -307,6 +310,7 @@
     <string name="could_not_update_book">Could not update book</string>
     <string name="could_not_open_book">Could not open this book</string>
     <string name="unsupported_format">This book format is not supported</string>
+    <string name="reading_settings">Reading</string>
     <string name="reading_font_size">Font size</string>
     <string name="reading_line_height">Line spacing</string>
     <string name="reading_theme">Reading theme</string>

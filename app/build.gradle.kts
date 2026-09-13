@@ -23,8 +23,8 @@ android {
     applicationId = "tech.lury.xpod"
     minSdk = 33
     targetSdk = 36
-    versionCode = 17
-    versionName = "0.9.7"
+    versionCode = 18
+    versionName = "0.9.8"
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 

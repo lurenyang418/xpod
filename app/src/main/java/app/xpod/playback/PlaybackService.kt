@@ -66,14 +66,26 @@ class PlaybackService : MediaLibraryService() {
 
   override fun onCreate() {
     super.onCreate()
+    // Strip the shared OkHttp HTTP cache for media requests: a full episode GET is
+    // cacheable and would evict the small feed cache while Media3's SimpleCache already
+    // stores the audio. The connection pool and dispatcher stay shared.
+    val mediaOkHttpClient = okHttpClient.newBuilder().cache(null).build()
     val cachedHttpDataSource =
         CacheDataSource.Factory()
             .setCache(DownloadComponent.cache(this))
-            .setUpstreamDataSourceFactory(OkHttpDataSource.Factory(okHttpClient))
+            .setUpstreamDataSourceFactory(OkHttpDataSource.Factory(mediaOkHttpClient))
+            // The download cache uses NoOpCacheEvictor, so nothing may write to it except
+            // explicit downloads: streamed playback would otherwise accumulate on disk forever.
+            .setCacheWriteDataSinkFactory(null)
     val mediaDataSource = DefaultDataSource.Factory(this, cachedHttpDataSource)
     val player =
         ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(mediaDataSource))
+            // Pause when wired or Bluetooth audio outputs disconnect instead of blasting
+            // through the speaker.
+            .setHandleAudioBecomingNoisy(true)
+            // Keep the CPU and network radio awake while streaming with the screen off.
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
             .apply {
               setAudioAttributes(
@@ -133,12 +145,18 @@ class PlaybackService : MediaLibraryService() {
                       browser: MediaSession.ControllerInfo,
                       params: LibraryParams?,
                   ): ListenableFuture<LibraryResult<MediaItem>> =
-                      Futures.immediateFuture(
-                          LibraryResult.ofItem(
-                              browsableItem(ROOT_ID, getString(R.string.app_name)),
-                              params,
-                          )
-                      )
+                      if (!isTrustedBrowser(session, browser)) {
+                        Futures.immediateFuture(
+                            LibraryResult.ofError(SessionError.ERROR_PERMISSION_DENIED, params)
+                        )
+                      } else {
+                        Futures.immediateFuture(
+                            LibraryResult.ofItem(
+                                browsableItem(ROOT_ID, getString(R.string.app_name)),
+                                params,
+                            )
+                        )
+                      }
 
                   override fun onGetChildren(
                       session: MediaLibrarySession,
@@ -149,7 +167,14 @@ class PlaybackService : MediaLibraryService() {
                       params: LibraryParams?,
                   ): ListenableFuture<
                       LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>
-                  > = loadLibraryChildren(parentId, page, pageSize, params)
+                  > =
+                      if (!isTrustedBrowser(session, browser)) {
+                        Futures.immediateFuture(
+                            LibraryResult.ofError(SessionError.ERROR_PERMISSION_DENIED, params)
+                        )
+                      } else {
+                        loadLibraryChildren(parentId, page, pageSize, params)
+                      }
 
                   override fun onAddMediaItems(
                       mediaSession: MediaSession,
@@ -247,13 +272,19 @@ class PlaybackService : MediaLibraryService() {
     periodicSaveJob = playerScope.launch {
       while (true) {
         delay(2_000)
-        if (player.currentMediaItem != null) save(player)
+        // The event listener already saves on pause/seek/transition; the periodic loop only
+        // needs to track a position that is actually advancing.
+        if (player.isPlaying) save(player)
       }
     }
   }
 
   private fun save(player: Player) {
     if (!acceptsPersistence) return
+    // An idle player has never been prepared in this session (for example a queue that was
+    // only edited, never played): its position is a meaningless 0 that must not overwrite
+    // the persisted listening position.
+    if (player.playbackState == Player.STATE_IDLE) return
     val snapshot = snapshot(player)
     if (!persistence.submit(snapshot)) {
       Log.w("XPOD", "Unable to queue playback state for persistence")
@@ -294,6 +325,18 @@ class PlaybackService : MediaLibraryService() {
     runCatchingCancellable { persist(snapshot) }
         .onFailure { Log.w("XPOD", "Unable to persist playback state", it) }
   }
+
+  // The service is exported so media buttons and playback resumption keep working, but
+  // browsing exposes subscriptions, downloads and local-music document URIs; only this app
+  // and the known system/automotive controllers may browse. onConnect stays unrestricted.
+  private fun isTrustedBrowser(
+      session: MediaLibrarySession,
+      browser: MediaSession.ControllerInfo,
+  ): Boolean =
+      browser.packageName == packageName ||
+          session.isMediaNotificationController(browser) ||
+          session.isAutoCompanionController(browser) ||
+          session.isAutomotiveController(browser)
 
   private fun updatePlaybackBehavior(
       player: Player,

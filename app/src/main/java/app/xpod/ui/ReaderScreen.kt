@@ -60,6 +60,7 @@ private enum class ReaderFilter {
 @Composable
 internal fun ReaderScreen(
     state: MainUiState,
+    summaries: Map<String, String>,
     refresh: (String?) -> Unit,
     openArticle: (ArticleEntity) -> Unit,
     setRead: (String, Boolean) -> Unit,
@@ -73,10 +74,11 @@ internal fun ReaderScreen(
   var actionsExpanded by remember { mutableStateOf(false) }
   val selectedFeed = state.articleFeeds.firstOrNull { it.id == feedId }
   val unreadCount = unreadArticleCount(state.articles, feedId)
-  LaunchedEffect(feedId, selectedFeed) {
-    if (feedId != null && selectedFeed == null) feedId = null
+  LaunchedEffect(feedId, selectedFeed, state.articleFeeds) {
+    // Only clear a stale selection once feeds have actually loaded; the initial empty
+    // state must not wipe a restored filter.
+    if (feedId != null && selectedFeed == null && state.articleFeeds.isNotEmpty()) feedId = null
   }
-  val contentParser = remember { ArticleContentParser() }
   val feedTitles =
       remember(state.articleFeeds) { state.articleFeeds.associate { it.id to it.title } }
   val articles =
@@ -230,7 +232,7 @@ internal fun ReaderScreen(
             article.publishedEpochMs
                 .takeIf { it > 0 }
                 ?.let { Text(formatArticleDate(it), style = MaterialTheme.typography.bodySmall) }
-            val summary = remember(article.content) { contentParser.plainText(article.content) }
+            val summary = summaries[article.id].orEmpty()
             if (summary.isNotBlank()) {
               Text(
                   text = summary,

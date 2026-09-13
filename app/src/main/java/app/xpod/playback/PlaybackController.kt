@@ -203,35 +203,44 @@ constructor(
                 override fun onControllerDisconnected() {
                   progressJob?.cancel()
                   progressJob = null
-                  _nowPlaying.value = _nowPlaying.value?.copy(status = PlaybackStatus.Error)
+                  // A disconnect is a normal service teardown, not a playback failure: keep the
+                  // last snapshot but show it as paused instead of flagging an error forever.
+                  _nowPlaying.value = _nowPlaying.value?.copy(status = PlaybackStatus.Paused)
                 }
               },
       )
 
   private suspend fun controller(): MediaController = mediaControllerHolder.controller()
 
-  suspend fun play(episode: EpisodeEntity) = playbackMutationMutex.withLock {
-    restoredQueueApplied = true
-    val inactivePodcastQueue =
-        if (_queue.value.mediaType != PlaybackMediaType.Podcast) {
-          playbackRepository.queue(PlaybackMediaType.Podcast).mapNotNull { resolve(it) }
-        } else {
-          emptyList()
-        }
-    val restoreQueue = inactivePodcastQueue.any { it.id == episode.id }
-    val items = if (restoreQueue) inactivePodcastQueue else listOf(episode.asPlaybackItem())
-    val startIndex = items.indexOfFirst { it.id == episode.id }.coerceAtLeast(0)
-    val podcastState = playbackRepository.state(PlaybackMediaType.Podcast)
-    val startPositionMs =
-        if (restoreQueue && podcastState?.mediaId == episode.id) {
-          podcastState.positionMs
-        } else {
-          0L
-        }
-    startQueuePlayback(items, startIndex, startPositionMs = startPositionMs)
+  suspend fun play(episode: EpisodeEntity) {
+    queueRestoreCompleted.await()
+    playbackMutationMutex.withLock {
+      restoredQueueApplied = true
+      // Keep the podcast queue intact no matter which queue is currently active: playing an
+      // episode moves it to the front (matching playQueueItem) or inserts it there, never
+      // replaces the whole queue with a single item.
+      val podcastQueue =
+          if (_queue.value.mediaType == PlaybackMediaType.Podcast) {
+            _queue.value.items
+          } else {
+            playbackRepository.queue(PlaybackMediaType.Podcast).mapNotNull { resolve(it) }
+          }
+      val queueIndex = podcastQueue.indexOfFirst { it.id == episode.id }
+      val items =
+          if (queueIndex >= 0) {
+            podcastQueue.moveItemToFront(queueIndex)
+          } else {
+            listOf(episode.asPlaybackItem()) + podcastQueue
+          }
+      val podcastState = playbackRepository.state(PlaybackMediaType.Podcast)
+      val startPositionMs =
+          if (podcastState?.mediaId == episode.id) podcastState.positionMs else 0L
+      startQueuePlayback(items, 0, startPositionMs = startPositionMs)
+    }
   }
 
   suspend fun playMusic(tracks: List<LocalTrackEntity>, startTrackId: String) {
+    queueRestoreCompleted.await()
     musicPlaybackSettingsReady.await()
     playbackMutationMutex.withLock {
       restoredQueueApplied = true
@@ -242,6 +251,7 @@ constructor(
   }
 
   suspend fun playQueueItem(mediaId: String) {
+    queueRestoreCompleted.await()
     musicPlaybackSettingsReady.await()
     playbackMutationMutex.withLock {
       restoredQueueApplied = true
@@ -256,14 +266,20 @@ constructor(
     }
   }
 
-  suspend fun playNext(episode: EpisodeEntity) = playbackMutationMutex.withLock {
-    restoredQueueApplied = true
-    insertNext(episode.asPlaybackItem())
+  suspend fun playNext(episode: EpisodeEntity) {
+    queueRestoreCompleted.await()
+    playbackMutationMutex.withLock {
+      restoredQueueApplied = true
+      insertNext(episode.asPlaybackItem())
+    }
   }
 
-  suspend fun playNext(track: LocalTrackEntity) = playbackMutationMutex.withLock {
-    restoredQueueApplied = true
-    insertNext(track.asPlaybackItem())
+  suspend fun playNext(track: LocalTrackEntity) {
+    queueRestoreCompleted.await()
+    playbackMutationMutex.withLock {
+      restoredQueueApplied = true
+      insertNext(track.asPlaybackItem())
+    }
   }
 
   private suspend fun insertNext(item: PlaybackItem) {
@@ -278,14 +294,20 @@ constructor(
     insertIntoQueue(player, item, index)
   }
 
-  suspend fun addToQueue(episode: EpisodeEntity) = playbackMutationMutex.withLock {
-    restoredQueueApplied = true
-    addItemToQueue(episode.asPlaybackItem())
+  suspend fun addToQueue(episode: EpisodeEntity) {
+    queueRestoreCompleted.await()
+    playbackMutationMutex.withLock {
+      restoredQueueApplied = true
+      addItemToQueue(episode.asPlaybackItem())
+    }
   }
 
-  suspend fun addToQueue(track: LocalTrackEntity) = playbackMutationMutex.withLock {
-    restoredQueueApplied = true
-    addItemToQueue(track.asPlaybackItem())
+  suspend fun addToQueue(track: LocalTrackEntity) {
+    queueRestoreCompleted.await()
+    playbackMutationMutex.withLock {
+      restoredQueueApplied = true
+      addItemToQueue(track.asPlaybackItem())
+    }
   }
 
   private suspend fun addItemToQueue(item: PlaybackItem) {
@@ -298,29 +320,33 @@ constructor(
     insertIntoQueue(player, item, _queue.value.items.size)
   }
 
-  suspend fun removeFromQueue(mediaId: String) = playbackMutationMutex.withLock {
-    restoredQueueApplied = true
-    val player = controller()
-    ensurePlayerQueue(player)
-    val queue = _queue.value
-    val items = queue.items
-    val mediaType = queue.mediaType ?: return@withLock
-    val index = items.indexOfFirst { it.id == mediaId }
-    if (index < 0) return@withLock
-    val removingCurrent = mediaId == queue.currentMediaId || mediaId == _nowPlaying.value?.item?.id
-    val updated = items.toMutableList().also { it.removeAt(index) }
-    playbackRepository.replaceQueue(mediaType, updated.map { it.id })
-    try {
-      player.removeMediaItem(index)
-    } catch (error: Throwable) {
-      rollbackPersistedQueue(mediaType, items, error)
-      throw error
-    }
-    val currentMediaId = player.currentMediaItem?.mediaId
-    _queue.value = PlaybackQueue(updated, currentMediaId, mediaType)
-    if (removingCurrent) {
-      _nowPlaying.value =
-          updated.firstOrNull { it.id == currentMediaId }?.let { nowPlayingSnapshot(player, it) }
+  suspend fun removeFromQueue(mediaId: String) {
+    queueRestoreCompleted.await()
+    playbackMutationMutex.withLock {
+      restoredQueueApplied = true
+      val player = controller()
+      ensurePlayerQueue(player)
+      val queue = _queue.value
+      val items = queue.items
+      val mediaType = queue.mediaType ?: return@withLock
+      val index = items.indexOfFirst { it.id == mediaId }
+      if (index < 0) return@withLock
+      val removingCurrent =
+          mediaId == queue.currentMediaId || mediaId == _nowPlaying.value?.item?.id
+      val updated = items.toMutableList().also { it.removeAt(index) }
+      playbackRepository.replaceQueue(mediaType, updated.map { it.id })
+      try {
+        player.removeMediaItem(index)
+      } catch (error: Throwable) {
+        rollbackPersistedQueue(mediaType, items, error)
+        throw error
+      }
+      val currentMediaId = player.currentMediaItem?.mediaId
+      _queue.value = PlaybackQueue(updated, currentMediaId, mediaType)
+      if (removingCurrent) {
+        _nowPlaying.value =
+            updated.firstOrNull { it.id == currentMediaId }?.let { nowPlayingSnapshot(player, it) }
+      }
     }
   }
 
@@ -415,31 +441,34 @@ constructor(
     }
   }
 
-  suspend fun moveQueueItem(fromIndex: Int, toIndex: Int) = playbackMutationMutex.withLock {
-    val queue = _queue.value
-    val items = queue.items
-    val mediaType = queue.mediaType ?: return@withLock
-    if (fromIndex !in items.indices || toIndex !in items.indices || fromIndex == toIndex)
-        return@withLock
-    val currentIndex = items.indexOfFirst { it.id == queue.currentMediaId }
-    if (
-        mediaType == PlaybackMediaType.Podcast &&
-            currentIndex >= 0 &&
-            (fromIndex == currentIndex || toIndex <= currentIndex)
-    )
-        return@withLock
-    restoredQueueApplied = true
-    val player = controller()
-    ensurePlayerQueue(player)
-    val updated = items.toMutableList().also { it.add(toIndex, it.removeAt(fromIndex)) }
-    playbackRepository.replaceQueue(mediaType, updated.map { it.id })
-    try {
-      player.moveMediaItem(fromIndex, toIndex)
-    } catch (error: Throwable) {
-      rollbackPersistedQueue(mediaType, items, error)
-      throw error
+  suspend fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+    queueRestoreCompleted.await()
+    playbackMutationMutex.withLock {
+      val queue = _queue.value
+      val items = queue.items
+      val mediaType = queue.mediaType ?: return@withLock
+      if (fromIndex !in items.indices || toIndex !in items.indices || fromIndex == toIndex)
+          return@withLock
+      val currentIndex = items.indexOfFirst { it.id == queue.currentMediaId }
+      if (
+          mediaType == PlaybackMediaType.Podcast &&
+              currentIndex >= 0 &&
+              (fromIndex == currentIndex || toIndex <= currentIndex)
+      )
+          return@withLock
+      restoredQueueApplied = true
+      val player = controller()
+      ensurePlayerQueue(player)
+      val updated = items.toMutableList().also { it.add(toIndex, it.removeAt(fromIndex)) }
+      playbackRepository.replaceQueue(mediaType, updated.map { it.id })
+      try {
+        player.moveMediaItem(fromIndex, toIndex)
+      } catch (error: Throwable) {
+        rollbackPersistedQueue(mediaType, items, error)
+        throw error
+      }
+      _queue.value = PlaybackQueue(updated, player.currentMediaItem?.mediaId, mediaType)
     }
-    _queue.value = PlaybackQueue(updated, player.currentMediaItem?.mediaId, mediaType)
   }
 
   suspend fun toggle() = playbackMutationMutex.withLock {
@@ -747,7 +776,7 @@ constructor(
     _queue.value = PlaybackQueue(updated, player.currentMediaItem?.mediaId, mediaType)
   }
 
-  private fun ensurePlayerQueue(player: MediaController) {
+  private suspend fun ensurePlayerQueue(player: MediaController) {
     val items = _queue.value.items
     val playerIds = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }
     if (playerIds == items.map { it.id }) return
@@ -757,7 +786,20 @@ constructor(
     }
     val startIndex =
         items.indexOfFirst { it.id == _queue.value.currentMediaId }.takeIf { it >= 0 } ?: 0
-    player.setMediaItems(items.map(::mediaItem), startIndex, 0L)
+    // Editing a restored-but-not-yet-played queue must not reset the listening position:
+    // seed it from the live player when it already holds the item, otherwise from the
+    // persisted playback state.
+    val startItem = items[startIndex]
+    val startPositionMs =
+        if (player.currentMediaItem?.mediaId == startItem.id) {
+          player.currentPosition
+        } else {
+          _queue.value.mediaType
+              ?.let { mediaType -> playbackRepository.state(mediaType) }
+              ?.takeIf { it.mediaId == startItem.id }
+              ?.positionMs ?: 0L
+        }
+    player.setMediaItems(items.map(::mediaItem), startIndex, startPositionMs.coerceAtLeast(0L))
   }
 
   private suspend fun addToInactiveQueue(item: PlaybackItem, next: Boolean) {

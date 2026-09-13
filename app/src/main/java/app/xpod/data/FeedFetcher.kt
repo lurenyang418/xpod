@@ -1,11 +1,14 @@
 package app.xpod.data
 
+import app.xpod.util.await
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.ensureActive
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -29,7 +32,7 @@ enum class FeedRequestType(
 
 @Singleton
 class FeedFetcher @Inject constructor(private val client: OkHttpClient) {
-  fun fetch(url: String, requestType: FeedRequestType): ByteArray {
+  suspend fun fetch(url: String, requestType: FeedRequestType): ByteArray {
     if (!url.startsWith("https://", ignoreCase = true)) throw UnsupportedFeedUrlException(url)
     return client
         .newCall(
@@ -40,7 +43,7 @@ class FeedFetcher @Inject constructor(private val client: OkHttpClient) {
                 .build()
         )
         .apply { timeout().timeout(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
-        .execute()
+        .await()
         .use { response ->
           if (!response.request.url.isHttps) {
             throw UnsupportedFeedUrlException(response.request.url.toString())
@@ -72,11 +75,13 @@ internal fun shouldRetryFeedRefresh(error: Throwable): Boolean =
       else -> false
     }
 
-internal fun readBytesAtMost(input: InputStream, maxBytes: Int): ByteArray {
+internal suspend fun readBytesAtMost(input: InputStream, maxBytes: Int): ByteArray {
   val output = ByteArrayOutputStream()
   val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
   var total = 0
   while (true) {
+    // A cancelled coroutine must stop consuming the stream between chunks.
+    coroutineContext.ensureActive()
     val count = input.read(buffer)
     if (count < 0) break
     total += count

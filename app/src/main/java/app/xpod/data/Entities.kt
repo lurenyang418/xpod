@@ -21,7 +21,13 @@ data class PodcastEntity(
 @Entity(
     foreignKeys =
         [ForeignKey(PodcastEntity::class, ["id"], ["podcastId"], onDelete = ForeignKey.CASCADE)],
-    indices = [Index("podcastId"), Index(value = ["podcastId", "stableKey"], unique = true)],
+    indices =
+        [
+            Index("podcastId"),
+            Index(value = ["podcastId", "stableKey"], unique = true),
+            Index("publishedEpochMs"),
+            Index(value = ["podcastId", "publishedEpochMs"]),
+        ],
 )
 data class EpisodeEntity(
     @PrimaryKey val id: String,
@@ -54,7 +60,13 @@ data class ArticleFeedEntity(
 @Entity(
     foreignKeys =
         [ForeignKey(ArticleFeedEntity::class, ["id"], ["feedId"], onDelete = ForeignKey.CASCADE)],
-    indices = [Index("feedId"), Index(value = ["feedId", "stableKey"], unique = true)],
+    indices =
+        [
+            Index("feedId"),
+            Index(value = ["feedId", "stableKey"], unique = true),
+            Index("publishedEpochMs"),
+            Index(value = ["feedId", "publishedEpochMs"]),
+        ],
 )
 data class ArticleEntity(
     @PrimaryKey val id: String,
@@ -160,17 +172,9 @@ enum class BookFormat {
   PDF,
 }
 
-@Entity(
-    indices =
-        [
-            Index("treeUri"),
-            Index("title"),
-            Index("relativePath"),
-            Index("lastOpenedEpochMs"),
-            Index("isFavorite"),
-            Index("format"),
-        ]
-)
+// BooksViewModel filters and sorts the (small) library in memory, so secondary indices would
+// only slow down rescans.
+@Entity
 data class LocalBookEntity(
     @PrimaryKey val id: String,
     val documentUri: String,
