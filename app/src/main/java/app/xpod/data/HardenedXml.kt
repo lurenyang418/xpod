@@ -5,9 +5,9 @@ import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 
 /**
- * Creates a pull parser for untrusted XML (network feeds, imported OPML) that never processes
- * DTDs: DOCDECL processing is disabled and any input that declares a DOCTYPE before the root
- * element is rejected outright, so entity-expansion payloads cannot reach the parser.
+ * Creates a pull parser for untrusted XML (network feeds, imported OPML) that never processes DTDs:
+ * DOCDECL processing is disabled and any input that declares a DOCTYPE before the root element is
+ * rejected outright, so entity-expansion payloads cannot reach the parser.
  * [app.xpod.data.reader.EpubBookParser] applies the same rule to its local DOM parsing.
  */
 internal fun newHardenedXmlPullParser(bytes: ByteArray): XmlPullParser {
@@ -24,10 +24,10 @@ internal fun newHardenedXmlPullParser(bytes: ByteArray): XmlPullParser {
 }
 
 /**
- * Cheap prefix scan that stops at the root element, so large documents are never walked in
- * full. It tolerates a BOM, whitespace, an XML declaration or other processing instructions,
- * and comments before the root element; NUL bytes are skipped so UTF-16 input scans like
- * ASCII. Any other `<!` markup before the root element is a DTD and reports true.
+ * Cheap prefix scan that stops at the root element, so large documents are never walked in full. It
+ * tolerates a BOM, whitespace, an XML declaration or other processing instructions, and comments
+ * before the root element; NUL bytes are skipped so UTF-16 input scans like ASCII. Any other `<!`
+ * markup before the root element is a DTD and reports true.
  */
 private fun hasDoctypeDeclaration(bytes: ByteArray): Boolean {
   var index = 0

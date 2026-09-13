@@ -129,9 +129,12 @@ internal fun BookReaderScreen(
                     modifier = Modifier.padding(20.dp),
                 )
               }
-              itemsIndexed(toc, key = { index, entry ->
-                "toc:$index:${entry.spineIndex}:${entry.title}"
-              }) { _, entry ->
+              itemsIndexed(
+                  toc,
+                  key = { index, entry ->
+                    "toc:$index:${entry.spineIndex}:${entry.title}"
+                  },
+              ) { _, entry ->
                 ReaderTocItem(
                     entry = entry,
                     currentSpineIndex = state.position.spineIndex,

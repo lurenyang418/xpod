@@ -3,6 +3,7 @@
     <string name="dismiss_snackbar">Dismiss notification</string>
     <string name="subscriptions">Subscriptions</string>
     <string name="podcasts">Podcasts</string>
+    <string name="podcasts_hidden_in_navigation">Podcasts is hidden in navigation settings</string>
     <string name="library">Library</string>
     <string name="reader">Reader</string>
     <string name="article">Article</string>
@@ -55,6 +56,7 @@
         <item quantity="other">Refreshed %1$d of %2$d podcasts (%3$d failed)</item>
     </plurals>
     <string name="episodes">Episodes</string>
+    <string name="loading_episodes">Loading episodes</string>
     <string name="favorite">Favorite</string>
     <string name="remove_favorite">Remove favorite</string>
     <string name="mark_played">Mark played</string>

@@ -197,9 +197,8 @@ internal fun ArticleReaderScreen(
           }
         }
         else -> {
-          itemsIndexed(document?.blocks.orEmpty(), key = { index, _ -> "block-$index" }) {
-              _,
-              block ->
+          itemsIndexed(document?.blocks.orEmpty(), key = { index, _ -> "block-$index" }) { _, block
+            ->
             ArticlePageWidth { ArticleBlockContent(block) }
           }
         }

@@ -182,9 +182,7 @@ class EpubBookParserTest {
     )
     assertEquals(
         1f,
-        EpubPosition(blockIndex = 0)
-            .withBookProgress(3, 1, isAtChapterEnd = true)
-            .percent,
+        EpubPosition(blockIndex = 0).withBookProgress(3, 1, isAtChapterEnd = true).percent,
         0.0001f,
     )
   }

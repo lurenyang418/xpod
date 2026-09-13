@@ -55,6 +55,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.xpod.R
@@ -73,7 +75,9 @@ import java.util.Locale
 internal fun SubscriptionScreen(
     state: MainUiState,
     wide: Boolean,
-    select: (String?) -> Unit,
+    selectedPodcastId: String?,
+    episodes: List<EpisodeEntity>,
+    select: (String) -> Unit,
     refresh: (String) -> Unit,
     refreshAll: () -> Unit,
     play: (EpisodeEntity) -> Unit,
@@ -91,11 +95,13 @@ internal fun SubscriptionScreen(
     requestMarkAllPlayed: (String) -> Unit,
     bulkActionBusy: Boolean,
     openSettings: () -> Unit,
+    modifier: Modifier = Modifier,
+    episodesLoading: Boolean = false,
 ) {
   when {
-    state.podcasts.isEmpty() -> EmptySubscriptions(openSettings, Modifier.fillMaxSize())
+    state.podcasts.isEmpty() -> EmptySubscriptions(openSettings, modifier.fillMaxSize())
     wide ->
-        Row(Modifier.fillMaxSize()) {
+        Row(modifier.fillMaxSize()) {
           PodcastList(
               state.podcasts,
               state.newEpisodeCounts,
@@ -111,7 +117,7 @@ internal fun SubscriptionScreen(
               state.isRefreshingPodcasts,
           )
           EpisodeList(
-              state.episodes,
+              episodes,
               play,
               download,
               requestRemoveFailedDownload,
@@ -124,9 +130,10 @@ internal fun SubscriptionScreen(
               addToQueue,
               Modifier.weight(0.58f),
               true,
+              episodesLoading,
           )
         }
-    state.selectedPodcastId == null ->
+    selectedPodcastId == null ->
         PodcastList(
             state.podcasts,
             state.newEpisodeCounts,
@@ -138,12 +145,12 @@ internal fun SubscriptionScreen(
             delete,
             requestMarkAllPlayed,
             bulkActionBusy,
-            Modifier.fillMaxSize(),
+            modifier.fillMaxSize(),
             state.isRefreshingPodcasts,
         )
     else ->
         EpisodeList(
-            state.episodes,
+            episodes,
             play,
             download,
             requestRemoveFailedDownload,
@@ -154,8 +161,9 @@ internal fun SubscriptionScreen(
             openEpisode,
             togglePlayback,
             addToQueue,
-            Modifier.fillMaxSize(),
+            modifier.fillMaxSize(),
             false,
+            episodesLoading,
         )
   }
 }
@@ -187,7 +195,7 @@ private fun PodcastList(
     items: List<PodcastEntity>,
     newEpisodeCounts: Map<String, Int>,
     unplayedEpisodeCounts: Map<String, Int>,
-    select: (String?) -> Unit,
+    select: (String) -> Unit,
     refresh: (String) -> Unit,
     refreshAll: () -> Unit,
     showQueue: () -> Unit,
@@ -319,11 +327,21 @@ internal fun EpisodeList(
     addToQueue: (EpisodeEntity) -> Unit,
     modifier: Modifier,
     showTitle: Boolean,
+    loading: Boolean = false,
 ) =
     LazyColumn(modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
       if (showTitle)
           item {
             Text(stringResource(R.string.episodes), style = MaterialTheme.typography.headlineSmall)
+          }
+      if (loading)
+          item {
+            val loadingDescription = stringResource(R.string.loading_episodes)
+            LinearProgressIndicator(
+                Modifier.fillMaxWidth().semantics {
+                  contentDescription = loadingDescription
+                }
+            )
           }
       items(items, key = { it.id }) {
         EpisodeCard(

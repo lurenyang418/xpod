@@ -233,8 +233,7 @@ constructor(
             listOf(episode.asPlaybackItem()) + podcastQueue
           }
       val podcastState = playbackRepository.state(PlaybackMediaType.Podcast)
-      val startPositionMs =
-          if (podcastState?.mediaId == episode.id) podcastState.positionMs else 0L
+      val startPositionMs = if (podcastState?.mediaId == episode.id) podcastState.positionMs else 0L
       startQueuePlayback(items, 0, startPositionMs = startPositionMs)
     }
   }

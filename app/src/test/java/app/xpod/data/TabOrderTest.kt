@@ -11,7 +11,6 @@ class TabOrderTest {
             AppTab.Memos,
             AppTab.Podcasts,
             AppTab.Reader,
-            AppTab.Library,
             AppTab.Music,
             AppTab.Books,
             AppTab.Settings,
@@ -27,7 +26,6 @@ class TabOrderTest {
             AppTab.Memos,
             AppTab.Podcasts,
             AppTab.Reader,
-            AppTab.Library,
             AppTab.Music,
             AppTab.Books,
             AppTab.Settings,
@@ -43,9 +41,8 @@ class TabOrderTest {
     assertEquals(
         listOf(
             AppTab.Podcasts,
-            AppTab.Reader,
             AppTab.Memos,
-            AppTab.Library,
+            AppTab.Reader,
             AppTab.Music,
             AppTab.Books,
             AppTab.Settings,
@@ -63,5 +60,21 @@ class TabOrderTest {
         parseDisabledTabs("Reader,Unknown,Settings,Memos,Reader"),
     )
     assertEquals(emptySet<AppTab>(), parseDisabledTabs(null))
+  }
+
+  @Test
+  fun removedLibraryTabIsIgnoredFromSavedPreferences() {
+    assertEquals(
+        listOf(
+            AppTab.Memos,
+            AppTab.Podcasts,
+            AppTab.Reader,
+            AppTab.Music,
+            AppTab.Books,
+            AppTab.Settings,
+        ),
+        parseTabOrder("Memos,Library,Podcasts"),
+    )
+    assertEquals(setOf(AppTab.Reader), parseDisabledTabs("Library,Reader"))
   }
 }

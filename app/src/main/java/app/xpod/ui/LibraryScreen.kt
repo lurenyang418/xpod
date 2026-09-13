@@ -10,7 +10,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,7 +27,7 @@ import app.xpod.data.DownloadState
 import app.xpod.data.EpisodeEntity
 import app.xpod.playback.NowPlaying
 
-private enum class LibraryFilter {
+internal enum class LibraryFilter {
   Downloaded,
   DownloadTasks,
   ContinueListening,
@@ -37,6 +36,29 @@ private enum class LibraryFilter {
   Favorites,
   All,
 }
+
+internal fun filterLibraryEpisodes(
+    filter: LibraryFilter,
+    libraryEpisodes: List<EpisodeEntity>,
+    downloadStates: Map<String, DownloadState>,
+): List<EpisodeEntity> =
+    when (filter) {
+      LibraryFilter.ContinueListening ->
+          libraryEpisodes
+              .filter { !it.isPlayed && it.lastPlayedEpochMs > 0 }
+              .sortedByDescending { it.lastPlayedEpochMs }
+      LibraryFilter.Recent ->
+          libraryEpisodes
+              .filter { it.isPlayed && it.lastPlayedEpochMs > 0 }
+              .sortedByDescending { it.lastPlayedEpochMs }
+      LibraryFilter.Unplayed -> libraryEpisodes.filterNot { it.isPlayed }
+      LibraryFilter.Favorites -> libraryEpisodes.filter { it.isFavorite }
+      LibraryFilter.DownloadTasks ->
+          libraryEpisodes.filter { downloadStates[it.id]?.isCompleted == false }
+      LibraryFilter.Downloaded ->
+          libraryEpisodes.filter { downloadStates[it.id]?.isCompleted == true }
+      LibraryFilter.All -> libraryEpisodes
+    }
 
 @Composable
 internal fun LibraryScreen(
@@ -51,31 +73,18 @@ internal fun LibraryScreen(
     openEpisode: (EpisodeEntity) -> Unit,
     togglePlayback: () -> Unit,
     addToQueue: (EpisodeEntity) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
   var filter by remember { mutableStateOf(LibraryFilter.Downloaded) }
   val episodes =
       remember(filter, state.libraryEpisodes, downloadStates) {
-        when (filter) {
-          LibraryFilter.ContinueListening ->
-              state.libraryEpisodes
-                  .filter { !it.isPlayed && it.lastPlayedEpochMs > 0 }
-                  .sortedByDescending { it.lastPlayedEpochMs }
-          LibraryFilter.Recent ->
-              state.libraryEpisodes
-                  .filter { it.isPlayed && it.lastPlayedEpochMs > 0 }
-                  .sortedByDescending { it.lastPlayedEpochMs }
-          LibraryFilter.Unplayed -> state.libraryEpisodes.filterNot { it.isPlayed }
-          LibraryFilter.Favorites -> state.libraryEpisodes.filter { it.isFavorite }
-          LibraryFilter.DownloadTasks ->
-              state.libraryEpisodes.filter { downloadStates[it.id]?.isCompleted == false }
-          LibraryFilter.Downloaded ->
-              state.libraryEpisodes.filter { downloadStates[it.id]?.isCompleted == true }
-          LibraryFilter.All -> state.libraryEpisodes
-        }
+        filterLibraryEpisodes(filter, state.libraryEpisodes, downloadStates)
       }
-  Column(Modifier.fillMaxSize().padding(12.dp)) {
-    Text(stringResource(R.string.library), style = MaterialTheme.typography.headlineSmall)
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+  Column(modifier.fillMaxSize().padding(12.dp)) {
+    LazyRow(
+        modifier = Modifier.testTag("library_filters"),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
       items(LibraryFilter.entries) { item ->
         FilterChip(
             selected = filter == item,
@@ -100,7 +109,10 @@ internal fun LibraryScreen(
         }
       }
     } else {
-      LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      LazyColumn(
+          Modifier.fillMaxWidth().weight(1f),
+          verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
         items(episodes, key = { it.id }) {
           EpisodeCard(
               it,

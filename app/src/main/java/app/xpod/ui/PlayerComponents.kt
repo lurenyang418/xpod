@@ -45,14 +45,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.xpod.R
 import app.xpod.data.PlaybackMediaType
 import app.xpod.data.PodcastEntity
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.xpod.playback.NowPlaying
-import kotlinx.coroutines.flow.StateFlow
 import coil3.compose.AsyncImage
 import java.util.Locale
+import kotlinx.coroutines.flow.StateFlow
 
 @Immutable
 data class MiniPlaybackSummary(

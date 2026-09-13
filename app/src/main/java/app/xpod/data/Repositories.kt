@@ -32,9 +32,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -90,7 +90,6 @@ internal fun parseMusicRepeatMode(value: String?): MusicRepeatMode =
 enum class AppTab {
   Podcasts,
   Reader,
-  Library,
   Music,
   Memos,
   Books,
@@ -101,7 +100,6 @@ internal val defaultTabOrder =
     listOf(
         AppTab.Podcasts,
         AppTab.Reader,
-        AppTab.Library,
         AppTab.Music,
         AppTab.Memos,
         AppTab.Books,
@@ -229,22 +227,22 @@ constructor(
   suspend fun remove(podcastId: String): Set<String> =
       withContext(Dispatchers.IO) {
         // Read the episode list inside the transaction so it matches what is deleted.
-        val episodeIds =
-            database.withTransaction {
-              val ids =
-                  database.episodes().allForPodcast(podcastId).map(EpisodeEntity::id).toSet()
-              database.playback().removeQueueEpisodesForPodcast(podcastId)
-              database.playback().clearStateForPodcast(podcastId)
-              database.podcasts().delete(podcastId)
-              ids
-            }
+        val episodeIds = database.withTransaction {
+          val ids = database.episodes().allForPodcast(podcastId).map(EpisodeEntity::id).toSet()
+          database.playback().removeQueueEpisodesForPodcast(podcastId)
+          database.playback().clearStateForPodcast(podcastId)
+          database.podcasts().delete(podcastId)
+          ids
+        }
         // The unsubscribe is committed; download cleanup is best effort, only for episodes
         // that actually have a download entry, and one failure must not abort the rest.
         val downloadedIds = downloads.states.value.keys
-        episodeIds.filter { it in downloadedIds }.forEach { episodeId ->
-          runCatching { downloads.remove(episodeId) }
-              .onFailure { Log.w("XPOD", "Unable to remove download for $episodeId", it) }
-        }
+        episodeIds
+            .filter { it in downloadedIds }
+            .forEach { episodeId ->
+              runCatching { downloads.remove(episodeId) }
+                  .onFailure { Log.w("XPOD", "Unable to remove download for $episodeId", it) }
+            }
         episodeIds
       }
 
@@ -557,52 +555,50 @@ constructor(
   private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   // All state refreshes run on a single worker so a slower, stale snapshot can never
   // overwrite a newer one (which could leave a finished download shown as in-progress).
-  private val refreshScope =
-      CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
+  private val refreshScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
   // Only touched from refreshScope, which runs one coroutine at a time.
   private var progressPollJob: Job? = null
 
   // Building the DownloadManager scans the download directory and opens SQLite; keep that
   // off the main thread that constructs this repository.
-  private val manager: Deferred<DownloadManager> =
-      syncScope.async {
-        // Strip the shared OkHttp HTTP cache for episode downloads: a full episode GET is
-        // cacheable and would evict the small feed cache while SimpleCache already stores
-        // the audio. The connection pool and dispatcher stay shared.
-        DownloadComponent.configure(
-            OkHttpDataSource.Factory(okHttpClient.newBuilder().cache(null).build())
-        )
-        DownloadComponent.manager(context).also { manager ->
-          manager.addListener(
-              object : DownloadManager.Listener {
-                override fun onDownloadChanged(
-                    downloadManager: DownloadManager,
-                    download: Download,
-                    finalException: Exception?,
-                ) = refreshStates(downloadManager)
+  private val manager: Deferred<DownloadManager> = syncScope.async {
+    // Strip the shared OkHttp HTTP cache for episode downloads: a full episode GET is
+    // cacheable and would evict the small feed cache while SimpleCache already stores
+    // the audio. The connection pool and dispatcher stay shared.
+    DownloadComponent.configure(
+        OkHttpDataSource.Factory(okHttpClient.newBuilder().cache(null).build())
+    )
+    DownloadComponent.manager(context).also { manager ->
+      manager.addListener(
+          object : DownloadManager.Listener {
+            override fun onDownloadChanged(
+                downloadManager: DownloadManager,
+                download: Download,
+                finalException: Exception?,
+            ) = refreshStates(downloadManager)
 
-                override fun onDownloadRemoved(
-                    downloadManager: DownloadManager,
-                    download: Download,
-                ) = refreshStates(downloadManager)
+            override fun onDownloadRemoved(
+                downloadManager: DownloadManager,
+                download: Download,
+            ) = refreshStates(downloadManager)
 
-                // Losing or regaining an allowed network must re-render queued items as
-                // waiting-for-network (and back) instead of leaving a stale "Queued".
-                override fun onRequirementsStateChanged(
-                    downloadManager: DownloadManager,
-                    requirements: Requirements,
-                    notMetRequirements: Int,
-                ) = refreshStates(downloadManager)
+            // Losing or regaining an allowed network must re-render queued items as
+            // waiting-for-network (and back) instead of leaving a stale "Queued".
+            override fun onRequirementsStateChanged(
+                downloadManager: DownloadManager,
+                requirements: Requirements,
+                notMetRequirements: Int,
+            ) = refreshStates(downloadManager)
 
-                override fun onDownloadsPausedChanged(
-                    downloadManager: DownloadManager,
-                    downloadsPaused: Boolean,
-                ) = refreshStates(downloadManager)
-              }
-          )
-          refreshStates(manager)
-        }
-      }
+            override fun onDownloadsPausedChanged(
+                downloadManager: DownloadManager,
+                downloadsPaused: Boolean,
+            ) = refreshStates(downloadManager)
+          }
+      )
+      refreshStates(manager)
+    }
+  }
 
   suspend fun enqueue(episode: EpisodeEntity): Result<Unit> = runCatchingCancellable {
     enqueueOrThrow(episode)

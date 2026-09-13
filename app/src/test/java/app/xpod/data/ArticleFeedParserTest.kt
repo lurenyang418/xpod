@@ -56,10 +56,7 @@ class ArticleFeedParserTest {
         """<feed xmlns="http://www.w3.org/2005/Atom"><title>Atoms</title><entry><id>a</id><title>One</title><link rel="alternate" href="http://www.example.com/posts/one"/><content>Body</content></entry></feed>"""
 
     val article =
-        parser
-            .parse(feed.toByteArray(), "https://www.example.com/feed.xml")
-            .articles
-            .single()
+        parser.parse(feed.toByteArray(), "https://www.example.com/feed.xml").articles.single()
 
     assertEquals("https://www.example.com/posts/one", article.url)
   }

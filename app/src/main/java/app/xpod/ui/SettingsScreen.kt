@@ -64,6 +64,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import app.xpod.BuildConfig
 import app.xpod.R
@@ -100,12 +101,14 @@ internal fun SettingsScreen(
   var showTabOrder by rememberSaveable { mutableStateOf(false) }
   var showAddSubscription by rememberSaveable { mutableStateOf(false) }
   var showCloudMemos by rememberSaveable { mutableStateOf(false) }
-  var draftFontSizeSp by remember(readingPreferences.fontSizeSp) {
-    mutableFloatStateOf(readingPreferences.fontSizeSp)
-  }
-  var draftLineHeight by remember(readingPreferences.lineHeightMultiplier) {
-    mutableFloatStateOf(readingPreferences.lineHeightMultiplier)
-  }
+  var draftFontSizeSp by
+      remember(readingPreferences.fontSizeSp) {
+        mutableFloatStateOf(readingPreferences.fontSizeSp)
+      }
+  var draftLineHeight by
+      remember(readingPreferences.lineHeightMultiplier) {
+        mutableFloatStateOf(readingPreferences.lineHeightMultiplier)
+      }
   val importer =
       rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) {
         it?.let(importOpml)
@@ -118,7 +121,7 @@ internal fun SettingsScreen(
       }
 
   LazyColumn(
-      modifier = Modifier.fillMaxSize(),
+      modifier = Modifier.fillMaxSize().testTag("settings_list"),
       contentPadding = PaddingValues(20.dp),
       verticalArrangement = Arrangement.spacedBy(16.dp),
   ) {
@@ -585,7 +588,6 @@ private fun tabLabel(tab: AppTab): String =
         when (tab) {
           AppTab.Podcasts -> R.string.podcasts
           AppTab.Reader -> R.string.reader
-          AppTab.Library -> R.string.library
           AppTab.Music -> R.string.local_music
           AppTab.Memos -> R.string.memos
           AppTab.Books -> R.string.books

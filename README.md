@@ -4,7 +4,7 @@
 
 XPOD is a local-first podcast and article reader for Android 13+. It brings podcast RSS, article RSS/Atom, offline playback, a native article reader, and a user-selected local music library into one Jetpack Compose app.
 
-Current version: **0.9.7** · Android **13+** · **arm64-v8a** · [Apache-2.0](LICENSE)
+Current version: **0.9.8** · Android **13+** · **arm64-v8a** · [Apache-2.0](LICENSE)
 
 ## Screenshots
 

@@ -3,6 +3,7 @@ package app.xpod.ui
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.xpod.R
@@ -39,13 +40,18 @@ import java.io.IOException
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -57,14 +63,41 @@ data class MainUiState(
     val isRefreshingPodcasts: Boolean = false,
     val newEpisodeCounts: Map<String, Int> = emptyMap(),
     val unplayedEpisodeCounts: Map<String, Int> = emptyMap(),
-    val selectedPodcastId: String? = null,
-    val episodes: List<EpisodeEntity> = emptyList(),
     val libraryEpisodes: List<EpisodeEntity> = emptyList(),
     val articleFeeds: List<ArticleFeedEntity> = emptyList(),
     val articles: List<ArticleEntity> = emptyList(),
     val isRefreshingArticles: Boolean = false,
     val status: UiStatus? = null,
 )
+
+internal data class PodcastSelectionUiState(
+    val selectedPodcastId: String? = null,
+    val episodes: List<EpisodeEntity> = emptyList(),
+    val isLoading: Boolean = false,
+)
+
+@OptIn(ExperimentalCoroutinesApi::class)
+internal fun podcastSelectionFlow(
+    selectedPodcastId: Flow<String?>,
+    episodesForPodcast: (String) -> Flow<List<EpisodeEntity>>,
+): Flow<PodcastSelectionUiState> = selectedPodcastId.flatMapLatest { id ->
+  if (id == null) {
+    flowOf(PodcastSelectionUiState())
+  } else {
+    flow {
+      emit(PodcastSelectionUiState(selectedPodcastId = id, isLoading = true))
+      emitAll(
+          episodesForPodcast(id).map { episodes ->
+            PodcastSelectionUiState(
+                selectedPodcastId = id,
+                episodes = episodes,
+                isLoading = false,
+            )
+          }
+      )
+    }
+  }
+}
 
 data class CloudMemosUiState(
     val baseUrl: String = "",
@@ -136,6 +169,7 @@ internal fun unreadArticleCount(articles: List<ArticleEntity>, feedId: String?):
 class MainViewModel
 @Inject
 constructor(
+    private val savedStateHandle: SavedStateHandle,
     private val podcasts: PodcastRepository,
     private val reader: ReaderRepository,
     private val subscriptions: SubscriptionRepository,
@@ -146,7 +180,8 @@ constructor(
     private val player: PlaybackController,
     @param:ApplicationContext private val context: Context,
 ) : ViewModel() {
-  private val selected = MutableStateFlow<String?>(null)
+  private val _navigation = MutableStateFlow(loadNavigationState())
+  internal val navigation: StateFlow<MainNavigationState> = _navigation.asStateFlow()
   private val status = MutableStateFlow<UiStatus?>(null)
   private val refreshingPodcasts = MutableStateFlow(false)
   private val refreshingArticles = MutableStateFlow(false)
@@ -154,23 +189,22 @@ constructor(
   private val _bulkActionsState = MutableStateFlow(BulkActionsUiState())
   private var pendingBulkUndo: PendingBulkUndo? = null
   private var bulkEventSequence = 0L
-  @OptIn(ExperimentalCoroutinesApi::class)
-  private val episodes = selected.flatMapLatest { id ->
-    if (id == null) kotlinx.coroutines.flow.flowOf(emptyList()) else podcasts.episodes(id)
-  }
+  private val selectedPodcastId =
+      navigation.map { it.podcast.selectedPodcastId }.distinctUntilChanged()
+  private val podcastSelectionSource = podcastSelectionFlow(selectedPodcastId, podcasts::episodes)
+  internal val podcastSelection: StateFlow<PodcastSelectionUiState> =
+      podcastSelectionSource.stateIn(
+          viewModelScope,
+          SharingStarted.Eagerly,
+          PodcastSelectionUiState(),
+      )
   private val libraryState =
-      combine(podcasts.podcasts(), selected, episodes, podcasts.allEpisodes()) {
-          all,
-          id,
-          items,
-          library ->
+      combine(podcasts.podcasts(), podcasts.allEpisodes()) { all, library ->
         MainUiState(
             podcasts = all,
             newEpisodeCounts = library.filter { it.isNew }.groupingBy { it.podcastId }.eachCount(),
             unplayedEpisodeCounts =
                 library.filterNot { it.isPlayed }.groupingBy { it.podcastId }.eachCount(),
-            selectedPodcastId = id,
-            episodes = items,
             libraryEpisodes = library,
         )
       }
@@ -224,21 +258,21 @@ constructor(
   val tabOrder: StateFlow<List<AppTab>> =
       settings.tabOrder.stateIn(
           viewModelScope,
-          SharingStarted.WhileSubscribed(5_000),
+          SharingStarted.Eagerly,
           defaultTabOrder,
       )
   val enabledTabs: StateFlow<Set<AppTab>> =
       settings.enabledTabs.stateIn(
           viewModelScope,
-          SharingStarted.WhileSubscribed(5_000),
+          SharingStarted.Eagerly,
           defaultTabOrder.toSet(),
       )
   val nowPlaying = player.nowPlaying
 
   /**
-   * [nowPlaying] with the 500 ms position ticks stripped out. Everything except the full
-   * player (the only position consumer) should collect this one, so playback does not
-   * recompose the navigation shell and every visible list row twice a second.
+   * [nowPlaying] with the 500 ms position ticks stripped out. Everything except the full player
+   * (the only position consumer) should collect this one, so playback does not recompose the
+   * navigation shell and every visible list row twice a second.
    */
   val nowPlayingDisplay: StateFlow<NowPlaying?> =
       player.nowPlaying
@@ -255,12 +289,15 @@ constructor(
   val downloadStates = downloads.states
 
   private val summaryParser = ArticleContentParser()
-  /** Memo cache so unchanged articles are not re-parsed on every emission: id -> (content hash, summary). */
+  /**
+   * Memo cache so unchanged articles are not re-parsed on every emission: id -> (content hash,
+   * summary).
+   */
   private val summaryCache = HashMap<String, Pair<Int, String>>()
 
   /**
-   * Plain-text previews per article id, derived off the main thread so list rows never run
-   * Jsoup while composing.
+   * Plain-text previews per article id, derived off the main thread so list rows never run Jsoup
+   * while composing.
    */
   val articleSummaries: StateFlow<Map<String, String>> =
       reader
@@ -283,22 +320,78 @@ constructor(
           .flowOn(Dispatchers.Default)
           .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
+  private fun loadNavigationState(): MainNavigationState = restoreNavigationState(savedStateHandle)
+
+  private fun dispatchNavigation(action: NavigationAction) {
+    // Navigation callbacks and viewModelScope use the main dispatcher. Keep this read-modify-write
+    // on that dispatcher so each user action is applied to the latest state.
+    val updated = reduceNavigation(_navigation.value, action)
+    if (updated == _navigation.value) return
+    _navigation.value = updated
+    persistNavigationState(savedStateHandle, updated)
+  }
+
+  private fun visibleRoutes(): List<AppRoute> =
+      tabOrder.value.filter(enabledTabs.value::contains).toAppRoutes()
+
+  internal fun selectDestination(route: AppRoute) {
+    dispatchNavigation(NavigationAction.SelectDestination(resolveRoute(route, visibleRoutes())))
+  }
+
+  internal fun selectPodcastSubView(value: PodcastSubView) {
+    dispatchNavigation(NavigationAction.SelectPodcastSubView(value))
+  }
+
+  fun openPodcast(id: String) {
+    if (AppRoute.Podcasts !in visibleRoutes()) {
+      selectDestination(AppRoute.Podcasts)
+      showStatus(context.getString(R.string.podcasts_hidden_in_navigation))
+      return
+    }
+    dispatchNavigation(NavigationAction.OpenPodcast(id))
+    viewModelScope.launch { podcasts.markPodcastSeen(id) }
+  }
+
+  fun openEpisode(id: String) {
+    dispatchNavigation(NavigationAction.OpenEpisode(id))
+  }
+
+  fun openArticle(id: String) {
+    dispatchNavigation(NavigationAction.OpenArticle(id))
+  }
+
+  fun openBook(id: String) {
+    dispatchNavigation(NavigationAction.OpenBook(id))
+  }
+
+  fun openFullPlayer() {
+    dispatchNavigation(NavigationAction.OpenFullPlayer)
+  }
+
+  fun closeFullPlayer() {
+    dispatchNavigation(NavigationAction.CloseFullPlayer)
+  }
+
+  fun navigateBack() {
+    dispatchNavigation(NavigationAction.NavigateBack)
+  }
+
   init {
     viewModelScope.launch {
       runCatching { settings.useWifiOnlyDownloads.first() }.getOrNull()?.let(downloads::setWifiOnly)
     }
   }
 
-  fun selectPodcast(id: String?) {
-    selected.value = id
-    if (id != null) viewModelScope.launch { podcasts.markPodcastSeen(id) }
-  }
-
   fun removePodcast(id: String) = viewModelScope.launch {
     runCatchingCancellable { podcasts.remove(id) }
         .onSuccess { removedEpisodeIds ->
           player.removeDeletedEpisodes(removedEpisodeIds)
-          if (selected.value == id) selected.value = null
+          if (_navigation.value.podcast.selectedPodcastId == id) {
+            dispatchNavigation(NavigationAction.ClearPodcastSelection)
+          }
+          _navigation.value.selectedEpisodeId?.takeIf(removedEpisodeIds::contains)?.let {
+            dispatchNavigation(NavigationAction.ClearEpisodeSelection)
+          }
           showStatus(context.getString(R.string.subscription_removed))
         }
         .onFailure { error ->

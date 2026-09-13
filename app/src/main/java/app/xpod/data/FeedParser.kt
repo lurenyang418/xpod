@@ -60,8 +60,7 @@ class FeedParser @Inject constructor() {
     while (event != XmlPullParser.END_DOCUMENT) {
       // Only direct children of the root count: <channel> for RSS, <item> siblings for RDF.
       val isRootChild = event == XmlPullParser.START_TAG && parser.depth == rootDepth + 1
-      if (isRootChild && parser.name.equals("item", true))
-          parseItem(parser)?.let { episodes += it }
+      if (isRootChild && parser.name.equals("item", true)) parseItem(parser)?.let { episodes += it }
       if (isRootChild && parser.name.equals("channel", true)) {
         val channel = parseChannel(parser)
         feedTitle = channel.title
@@ -214,8 +213,8 @@ class FeedParser @Inject constructor() {
 
 /**
  * Reads artwork from an artwork start tag (`<image>`, `<itunes:image>`, `<media:thumbnail>`):
- * prefers the href/url attributes and falls back to the text of a direct `<url>` child element
- * as used by plain RSS `<image>` blocks. When it falls back, it consumes the element's subtree.
+ * prefers the href/url attributes and falls back to the text of a direct `<url>` child element as
+ * used by plain RSS `<image>` blocks. When it falls back, it consumes the element's subtree.
  */
 internal fun readImageArtworkUrl(parser: XmlPullParser): String? {
   val attribute =

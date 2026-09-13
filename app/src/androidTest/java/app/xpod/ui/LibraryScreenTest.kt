@@ -5,10 +5,14 @@ package app.xpod.ui
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.xpod.data.DownloadPhase
@@ -134,6 +138,45 @@ class LibraryScreenTest {
 
     compose.onNodeWithTag("episode_card_completed").assertIsDisplayed()
     compose.onAllNodesWithTag("download_actions_completed").assertCountEquals(0)
+  }
+
+  @Test
+  fun allLibraryFiltersCanBeSelected() {
+    compose.setContent {
+      MaterialTheme {
+        LibraryScreen(
+            state = MainUiState(libraryEpisodes = listOf(episode("all"))),
+            play = {},
+            favorite = {},
+            download = {},
+            requestRemoveFailedDownload = {},
+            played = { _, _ -> },
+            nowPlaying = null,
+            downloadStates = emptyMap(),
+            openEpisode = {},
+            togglePlayback = {},
+            addToQueue = {},
+        )
+      }
+    }
+
+    val filters =
+        listOf(
+            "Downloaded",
+            "DownloadTasks",
+            "ContinueListening",
+            "Unplayed",
+            "Recent",
+            "Favorites",
+            "All",
+        )
+    compose.onNodeWithTag("library_filter_Downloaded").assertIsSelected()
+    filters.drop(1).forEachIndexed { index, filter ->
+      if (index >= 3) {
+        compose.onNodeWithTag("library_filters").performTouchInput { swipeLeft() }
+      }
+      compose.onNodeWithTag("library_filter_$filter").performClick().assertIsSelected()
+    }
   }
 
   private fun episode(id: String = "failed-episode") =

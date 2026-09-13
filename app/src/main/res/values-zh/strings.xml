@@ -3,6 +3,7 @@
     <string name="dismiss_snackbar">关闭通知</string>
     <string name="subscriptions">订阅</string>
     <string name="podcasts">播客</string>
+    <string name="podcasts_hidden_in_navigation">播客入口已在导航设置中隐藏</string>
     <string name="library">资料库</string>
     <string name="reader">阅读</string>
     <string name="article">文章</string>
@@ -51,6 +52,7 @@
         <item quantity="other">已刷新 %1$d/%2$d 个播客（%3$d 个失败）</item>
     </plurals>
     <string name="episodes">单集</string>
+    <string name="loading_episodes">正在加载单集</string>
     <string name="favorite">收藏</string>
     <string name="remove_favorite">取消收藏</string>
     <string name="mark_played">标记为已播放</string>

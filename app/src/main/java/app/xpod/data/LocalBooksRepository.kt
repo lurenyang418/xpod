@@ -288,10 +288,9 @@ constructor(
       // instead of copying the whole file once per read. The stream is closed inside
       // openArchive, which lint's Recycle check cannot see through the lambda.
       @Suppress("Recycle")
-      val archive =
-          epubParser.openArchive {
-            context.contentResolver.openInputStream(documentUri) ?: error("Unable to open EPUB")
-          }
+      val archive = epubParser.openArchive {
+        context.contentResolver.openInputStream(documentUri) ?: error("Unable to open EPUB")
+      }
       try {
         val parsed = epubParser.parseMetadata(archive)
         metadata = parsed
