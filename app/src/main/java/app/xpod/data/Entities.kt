@@ -154,3 +154,68 @@ data class PlaybackReference(
     val mediaId: String,
     val mediaType: PlaybackMediaType,
 )
+
+enum class BookFormat {
+  EPUB,
+  PDF,
+}
+
+@Entity(
+    indices =
+        [
+            Index("treeUri"),
+            Index("title"),
+            Index("relativePath"),
+            Index("lastOpenedEpochMs"),
+            Index("isFavorite"),
+            Index("format"),
+        ]
+)
+data class LocalBookEntity(
+    @PrimaryKey val id: String,
+    val documentUri: String,
+    val treeUri: String,
+    val title: String,
+    val author: String,
+    val language: String,
+    val format: String,
+    val fileSizeBytes: Long,
+    val modifiedEpochMs: Long,
+    val relativePath: String = "",
+    val coverCachePath: String? = null,
+    val addedEpochMs: Long = 0,
+    val lastOpenedEpochMs: Long = 0,
+    val isFavorite: Boolean = false,
+)
+
+@Entity
+data class BookProgressEntity(
+    @PrimaryKey val bookId: String,
+    val positionVersion: Int = 1,
+    val positionJson: String = "{}",
+    val sourceModifiedEpochMs: Long = 0,
+    val updatedEpochMs: Long = 0,
+    val readingSeconds: Long = 0,
+)
+
+data class BookWithProgress(
+    val id: String,
+    val documentUri: String,
+    val treeUri: String,
+    val title: String,
+    val author: String,
+    val language: String,
+    val format: String,
+    val fileSizeBytes: Long,
+    val modifiedEpochMs: Long,
+    val relativePath: String,
+    val coverCachePath: String?,
+    val addedEpochMs: Long,
+    val lastOpenedEpochMs: Long,
+    val isFavorite: Boolean,
+    val positionVersion: Int?,
+    val positionJson: String?,
+    val sourceModifiedEpochMs: Long?,
+    val progressUpdatedEpochMs: Long?,
+    val readingSeconds: Long?,
+)

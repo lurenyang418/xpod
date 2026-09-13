@@ -157,6 +157,51 @@ interface LocalTrackDao {
 }
 
 @Dao
+interface LocalBookDao {
+  @Query(
+      """
+      SELECT b.id, b.documentUri, b.treeUri, b.title, b.author, b.language, b.format,
+             b.fileSizeBytes, b.modifiedEpochMs, b.relativePath, b.coverCachePath,
+             b.addedEpochMs, b.lastOpenedEpochMs, b.isFavorite,
+             p.positionVersion, p.positionJson, p.sourceModifiedEpochMs,
+             p.updatedEpochMs AS progressUpdatedEpochMs, p.readingSeconds
+      FROM LocalBookEntity b
+      LEFT JOIN BookProgressEntity p ON p.bookId = b.id
+      ORDER BY b.title COLLATE NOCASE, b.author COLLATE NOCASE
+      """
+  )
+  fun observeAllWithProgress(): Flow<List<BookWithProgress>>
+
+  @Query("SELECT * FROM LocalBookEntity ORDER BY title COLLATE NOCASE, author COLLATE NOCASE")
+  suspend fun all(): List<LocalBookEntity>
+
+  @Query("SELECT * FROM LocalBookEntity WHERE id = :id")
+  suspend fun find(id: String): LocalBookEntity?
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun upsertAll(items: List<LocalBookEntity>)
+
+  @Query("UPDATE LocalBookEntity SET lastOpenedEpochMs = :epochMs WHERE id = :id")
+  suspend fun updateLastOpened(id: String, epochMs: Long)
+
+  @Query("UPDATE LocalBookEntity SET isFavorite = NOT isFavorite WHERE id = :id")
+  suspend fun toggleFavorite(id: String)
+
+  @Query("DELETE FROM LocalBookEntity") suspend fun clear()
+}
+
+@Dao
+interface BookProgressDao {
+  @Query("SELECT * FROM BookProgressEntity WHERE bookId = :bookId")
+  suspend fun find(bookId: String): BookProgressEntity?
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(progress: BookProgressEntity)
+
+  @Query("DELETE FROM BookProgressEntity WHERE bookId NOT IN (SELECT id FROM LocalBookEntity)")
+  suspend fun deleteOrphans()
+}
+
+@Dao
 interface PlaybackDao {
   @Query("SELECT * FROM PlaybackStateEntity ORDER BY updatedAtEpochMs DESC LIMIT 1")
   suspend fun current(): PlaybackStateEntity?

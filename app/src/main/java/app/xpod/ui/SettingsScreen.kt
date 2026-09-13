@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.AlertDialog
@@ -43,12 +44,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -64,6 +68,8 @@ import androidx.compose.ui.unit.dp
 import app.xpod.BuildConfig
 import app.xpod.R
 import app.xpod.data.AppTab
+import app.xpod.data.ReadingPreferences
+import app.xpod.data.ReadingTheme
 import app.xpod.data.ThemeMode
 
 @Composable
@@ -71,10 +77,14 @@ internal fun SettingsScreen(
     theme: ThemeMode,
     dynamicColor: Boolean,
     wifiOnlyDownloads: Boolean,
+    readingPreferences: ReadingPreferences,
     cloudMemos: CloudMemosUiState,
     setTheme: (ThemeMode) -> Unit,
     setDynamicColor: (Boolean) -> Unit,
     setWifiOnlyDownloads: (Boolean) -> Unit,
+    setReadingFontSize: (Float) -> Unit,
+    setReadingLineHeight: (Float) -> Unit,
+    setReadingTheme: (ReadingTheme) -> Unit,
     showQueue: () -> Unit,
     add: (String, () -> Unit) -> Unit,
     importOpml: (Uri) -> Unit,
@@ -90,6 +100,12 @@ internal fun SettingsScreen(
   var showTabOrder by rememberSaveable { mutableStateOf(false) }
   var showAddSubscription by rememberSaveable { mutableStateOf(false) }
   var showCloudMemos by rememberSaveable { mutableStateOf(false) }
+  var draftFontSizeSp by remember(readingPreferences.fontSizeSp) {
+    mutableFloatStateOf(readingPreferences.fontSizeSp)
+  }
+  var draftLineHeight by remember(readingPreferences.lineHeightMultiplier) {
+    mutableFloatStateOf(readingPreferences.lineHeightMultiplier)
+  }
   val importer =
       rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) {
         it?.let(importOpml)
@@ -126,6 +142,40 @@ internal fun SettingsScreen(
             checked = dynamicColor,
             onCheckedChange = setDynamicColor,
         )
+      }
+    }
+    item {
+      SettingsCard(stringResource(R.string.reading_theme), Icons.Filled.FormatSize) {
+        Text(
+            stringResource(R.string.reading_font_size),
+            style = MaterialTheme.typography.titleSmall,
+        )
+        Slider(
+            value = draftFontSizeSp,
+            onValueChange = { draftFontSizeSp = it },
+            onValueChangeFinished = { setReadingFontSize(draftFontSizeSp) },
+            valueRange = 12f..32f,
+        )
+        Text(
+            stringResource(R.string.reading_line_height),
+            style = MaterialTheme.typography.titleSmall,
+        )
+        Slider(
+            value = draftLineHeight,
+            onValueChange = { draftLineHeight = it },
+            onValueChangeFinished = { setReadingLineHeight(draftLineHeight) },
+            valueRange = 1.1f..2.4f,
+        )
+        Text(stringResource(R.string.reading_theme), style = MaterialTheme.typography.titleSmall)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          ReadingTheme.entries.forEach { option ->
+            FilterChip(
+                selected = readingPreferences.theme == option,
+                onClick = { setReadingTheme(option) },
+                label = { Text(readingThemeLabel(option)) },
+            )
+          }
+        }
       }
     }
     item {
@@ -533,6 +583,7 @@ private fun tabLabel(tab: AppTab): String =
           AppTab.Library -> R.string.library
           AppTab.Music -> R.string.local_music
           AppTab.Memos -> R.string.memos
+          AppTab.Books -> R.string.books
           AppTab.Settings -> R.string.settings
         }
     )
@@ -551,5 +602,16 @@ private fun themeLabel(theme: ThemeMode): String =
           ThemeMode.System -> R.string.theme_system
           ThemeMode.Light -> R.string.theme_light
           ThemeMode.Dark -> R.string.theme_dark
+        }
+    )
+
+@Composable
+private fun readingThemeLabel(theme: ReadingTheme): String =
+    stringResource(
+        when (theme) {
+          ReadingTheme.FollowApp -> R.string.reading_theme_follow_app
+          ReadingTheme.Light -> R.string.reading_theme_light
+          ReadingTheme.Sepia -> R.string.reading_theme_sepia
+          ReadingTheme.Dark -> R.string.reading_theme_dark
         }
     )

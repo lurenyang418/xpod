@@ -13,9 +13,26 @@ class TabOrderTest {
             AppTab.Reader,
             AppTab.Library,
             AppTab.Music,
+            AppTab.Books,
             AppTab.Settings,
         ),
         parseTabOrder("Memos,Unknown,Podcasts,Memos"),
+    )
+  }
+
+  @Test
+  fun newBooksTabIsInsertedBeforeSavedSettingsTab() {
+    assertEquals(
+        listOf(
+            AppTab.Memos,
+            AppTab.Podcasts,
+            AppTab.Reader,
+            AppTab.Library,
+            AppTab.Music,
+            AppTab.Books,
+            AppTab.Settings,
+        ),
+        parseTabOrder("Memos,Settings"),
     )
   }
 
@@ -30,6 +47,7 @@ class TabOrderTest {
             AppTab.Memos,
             AppTab.Library,
             AppTab.Music,
+            AppTab.Books,
             AppTab.Settings,
         ),
         moved,

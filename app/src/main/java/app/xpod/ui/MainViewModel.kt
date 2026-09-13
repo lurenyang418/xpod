@@ -22,6 +22,9 @@ import app.xpod.data.PodcastEntity
 import app.xpod.data.PodcastPlayedChange
 import app.xpod.data.PodcastRepository
 import app.xpod.data.ReaderRepository
+import app.xpod.data.ReadingPreferences
+import app.xpod.data.ReadingPreferencesRepository
+import app.xpod.data.ReadingTheme
 import app.xpod.data.SettingsRepository
 import app.xpod.data.SubscriptionRepository
 import app.xpod.data.ThemeMode
@@ -133,6 +136,7 @@ constructor(
     private val subscriptions: SubscriptionRepository,
     private val downloads: DownloadRepository,
     private val settings: SettingsRepository,
+    private val readingPreferences: ReadingPreferencesRepository,
     private val cloudMemos: CloudMemosRepository,
     private val player: PlaybackController,
     @param:ApplicationContext private val context: Context,
@@ -189,6 +193,12 @@ constructor(
           viewModelScope,
           SharingStarted.WhileSubscribed(5_000),
           ThemeMode.System,
+      )
+  val readerPreferences: StateFlow<ReadingPreferences> =
+      readingPreferences.preferences.stateIn(
+          viewModelScope,
+          SharingStarted.WhileSubscribed(5_000),
+          ReadingPreferences(),
       )
   val wifiOnlyDownloads =
       settings.useWifiOnlyDownloads.stateIn(
@@ -634,6 +644,18 @@ constructor(
   }
 
   fun setAppTheme(theme: ThemeMode) = viewModelScope.launch { settings.setAppTheme(theme) }
+
+  fun setReadingFontSize(value: Float) = viewModelScope.launch {
+    readingPreferences.setFontSizeSp(value)
+  }
+
+  fun setReadingLineHeight(value: Float) = viewModelScope.launch {
+    readingPreferences.setLineHeightMultiplier(value)
+  }
+
+  fun setReadingTheme(value: ReadingTheme) = viewModelScope.launch {
+    readingPreferences.setTheme(value)
+  }
 
   fun setWifiOnlyDownloads(enabled: Boolean) = viewModelScope.launch {
     settings.setWifiOnlyDownloads(enabled)

@@ -30,6 +30,7 @@ More captured screens and the reproducible showcase-data workflow are available 
 ### Articles
 
 - Add RSS or Atom article feeds through the same subscription flow used for podcasts.
+- The `Reader` tab is for RSS/Atom articles; local books are kept in the separate `Books` tab.
 - Filter by feed, unread state, or favorites and update read state individually or in bulk.
 - Read structured content in a native Compose reader, including headings, images, quotes, lists, code, and tables.
 - Open the original page inside the app when the feed does not provide enough content.
@@ -40,6 +41,13 @@ More captured screens and the reproducible showcase-data workflow are available 
 - Recursively index supported audio documents while keeping the original files in place.
 - Search by title, artist, or album and use play-all, queue, shuffle, and repeat controls.
 - Recognized extensions include AAC, AMR, FLAC, M4A, MP3, OGA, OGG, Opus, WAV, and WMA, subject to device codec support.
+
+### Books
+
+- Select a folder with Android's Storage Access Framework and build a private shelf for EPUB and PDF files.
+- Read EPUB chapters in a native Compose reader with a spine-based table of contents, adjustable font size, line spacing, and reading theme.
+- Read PDF files with on-demand system `PdfRenderer` pages, zoom, and bounded bitmap caching.
+- Keep reading positions, favorites, and the selected folder on device; original book files stay in place.
 
 ### Subscriptions and organization
 

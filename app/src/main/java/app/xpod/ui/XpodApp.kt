@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import androidx.core.net.toUri
 import android.os.PersistableBundle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Article
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.CheckCircle
@@ -98,6 +100,7 @@ import kotlinx.coroutines.launch
 fun XpodApp(viewModel: MainViewModel = hiltViewModel()) {
   val dynamic by viewModel.dynamicColor.collectAsStateWithLifecycle()
   val theme by viewModel.appTheme.collectAsStateWithLifecycle()
+  val readerPreferences by viewModel.readerPreferences.collectAsStateWithLifecycle()
   val dark =
       when (theme) {
         ThemeMode.System -> isSystemInDarkTheme()
@@ -126,7 +129,7 @@ fun XpodApp(viewModel: MainViewModel = hiltViewModel()) {
         else -> lightColorScheme()
       }
   MaterialTheme(colorScheme = scheme) {
-    XpodHome(viewModel, theme, dynamic, requestNotificationPermission)
+    XpodHome(viewModel, theme, dynamic, readerPreferences, requestNotificationPermission)
   }
 }
 
@@ -136,6 +139,7 @@ private fun XpodHome(
     viewModel: MainViewModel,
     theme: ThemeMode,
     dynamic: Boolean,
+    readerPreferences: app.xpod.data.ReadingPreferences,
     requestNotificationPermission: () -> Unit,
 ) {
   val context = LocalContext.current
@@ -165,6 +169,9 @@ private fun XpodHome(
   val musicViewModel: MusicViewModel = hiltViewModel()
   val music by musicViewModel.musicState.collectAsStateWithLifecycle()
   val musicStatus by musicViewModel.status.collectAsStateWithLifecycle()
+  val booksViewModel: BooksViewModel = hiltViewModel()
+  val books by booksViewModel.state.collectAsStateWithLifecycle()
+  val booksStatus by booksViewModel.status.collectAsStateWithLifecycle()
   val bulkActions by viewModel.bulkActionsState.collectAsStateWithLifecycle()
   val tabOrder by viewModel.tabOrder.collectAsStateWithLifecycle()
   val enabledTabs by viewModel.enabledTabs.collectAsStateWithLifecycle()
@@ -174,6 +181,10 @@ private fun XpodHome(
   val musicFolderPicker =
       rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri?.let(musicViewModel::selectMusicFolder)
+      }
+  val booksFolderPicker =
+      rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri?.let(booksViewModel::selectBookFolder)
       }
   val containerWidth = LocalWindowInfo.current.containerSize.width
   val wide = with(LocalDensity.current) { containerWidth.toDp() >= 600.dp }
@@ -266,6 +277,7 @@ private fun XpodHome(
   var destination by rememberSaveable { mutableStateOf(AppTab.Podcasts) }
   var selectedEpisodeId by rememberSaveable { mutableStateOf<String?>(null) }
   var selectedArticleId by rememberSaveable { mutableStateOf<String?>(null) }
+  var selectedBookId by rememberSaveable { mutableStateOf<String?>(null) }
   val selectedEpisode = selectedEpisodeId?.let { id ->
     (state.episodes + state.libraryEpisodes).firstOrNull { it.id == id }
   }
@@ -285,6 +297,7 @@ private fun XpodHome(
       destination = AppTab.Settings
       selectedEpisodeId = null
       selectedArticleId = null
+      selectedBookId = null
       viewModel.selectPodcast(null)
     }
   }
@@ -379,6 +392,7 @@ private fun XpodHome(
       destination = tab
       selectedEpisodeId = null
       selectedArticleId = null
+      selectedBookId = null
     }
     select
   }
@@ -399,6 +413,12 @@ private fun XpodHome(
     musicStatus?.let {
       snackbar.showXpodSnackbar(it)
       musicViewModel.dismissStatus()
+    }
+  }
+  LaunchedEffect(booksStatus) {
+    booksStatus?.let {
+      snackbar.showXpodSnackbar(it)
+      booksViewModel.dismissStatus()
     }
   }
   val archivedMemoForUndo = memos.archivedMemoForUndo
@@ -467,6 +487,7 @@ private fun XpodHome(
             fullPlayer -> fullPlayer = false
             selectedEpisode != null -> selectedEpisodeId = null
             selectedArticleId != null -> selectedArticleId = null
+            selectedBookId != null -> selectedBookId = null
             destination == AppTab.Podcasts && state.selectedPodcastId != null ->
                 viewModel.selectPodcast(null)
           }
@@ -478,6 +499,7 @@ private fun XpodHome(
           fullPlayer ||
               selectedEpisode != null ||
               selectedArticleId != null ||
+              selectedBookId != null ||
               destination == AppTab.Podcasts && state.selectedPodcastId != null,
       onBack = back,
   )
@@ -486,6 +508,7 @@ private fun XpodHome(
         fullPlayer && nowPlaying != null -> "player"
         selectedEpisode != null -> "episode"
         selectedArticleId != null -> "article"
+        selectedBookId != null -> "book"
         else -> "tab:${destination.name}"
       }
   val content: @Composable () -> Unit = {
@@ -557,6 +580,11 @@ private fun XpodHome(
                   },
               onBack = { selectedArticleId = null },
           )
+      selectedBookId != null ->
+          BookReaderScreen(
+              bookId = selectedBookId!!,
+              onBack = { selectedBookId = null },
+          )
       destination == AppTab.Podcasts ->
           SubscriptionScreen(
               state = state,
@@ -622,6 +650,18 @@ private fun XpodHome(
               playNext = musicViewModel::playMusicNext,
               addToQueue = musicViewModel::addMusicToQueue,
           )
+      destination == AppTab.Books ->
+          BooksScreen(
+              state = books,
+              chooseFolder = { booksFolderPicker.launch(null) },
+              refresh = booksViewModel::refresh,
+              cancelScan = booksViewModel::cancelScan,
+              setQuery = booksViewModel::setQuery,
+              setFilter = booksViewModel::setFilter,
+              setSort = booksViewModel::setSort,
+              toggleFavorite = booksViewModel::toggleFavorite,
+              openBook = { selectedBookId = it },
+          )
       destination == AppTab.Memos ->
           MemosScreen(
               state = memos,
@@ -638,10 +678,14 @@ private fun XpodHome(
               theme = theme,
               dynamicColor = dynamic,
               wifiOnlyDownloads = wifiOnlyDownloads,
+              readingPreferences = readerPreferences,
               cloudMemos = cloudMemos,
               setTheme = viewModel::setAppTheme,
               setDynamicColor = viewModel::setDynamicColor,
               setWifiOnlyDownloads = viewModel::setWifiOnlyDownloads,
+              setReadingFontSize = viewModel::setReadingFontSize,
+              setReadingLineHeight = viewModel::setReadingLineHeight,
+              setReadingTheme = viewModel::setReadingTheme,
               showQueue = { showQueue = true },
               add = { url, onSuccess -> viewModel.addFeed(url, onSuccess) },
               importOpml = viewModel::importOpml,
@@ -685,7 +729,7 @@ private fun XpodHome(
       },
       bottomBar = {
         HomeBottomBar(
-            visible = !wide && !fullPlayer && selectedArticleId == null,
+            visible = !wide && !fullPlayer && selectedArticleId == null && selectedBookId == null,
             summary = miniSummary,
             destination = destination,
             tabOrder = visibleTabs,
@@ -701,7 +745,7 @@ private fun XpodHome(
   ) { padding ->
     Box(Modifier.fillMaxSize().padding(padding)) {
       Row(Modifier.fillMaxSize()) {
-        if (wide && selectedArticleId == null && !fullPlayer)
+        if (wide && selectedArticleId == null && selectedBookId == null && !fullPlayer)
             NavigationRail {
               visibleTabs.forEach { item ->
                 NavigationRailItem(
@@ -1139,7 +1183,7 @@ private fun shareText(context: Context, text: String, chooserTitle: String): Boo
 
 private fun openExternalUrl(context: Context, url: String): Boolean =
     try {
-      context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+      context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
       true
     } catch (_: ActivityNotFoundException) {
       false
@@ -1157,6 +1201,7 @@ private fun DestinationIcon(destination: AppTab) =
       AppTab.Library -> Icon(Icons.Filled.LibraryMusic, null)
       AppTab.Music -> Icon(Icons.Filled.MusicNote, null)
       AppTab.Memos -> Icon(Icons.AutoMirrored.Filled.Notes, null)
+      AppTab.Books -> Icon(Icons.AutoMirrored.Filled.MenuBook, null)
       AppTab.Settings -> Icon(Icons.Filled.Settings, null)
     }
 
@@ -1169,6 +1214,7 @@ private fun destinationLabel(destination: AppTab): String =
           AppTab.Library -> R.string.library
           AppTab.Music -> R.string.local_music
           AppTab.Memos -> R.string.memos
+          AppTab.Books -> R.string.books
           AppTab.Settings -> R.string.settings
         }
     )

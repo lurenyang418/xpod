@@ -52,6 +52,22 @@ enum class ThemeMode {
   Dark,
 }
 
+enum class ReadingTheme {
+  FollowApp,
+  Light,
+  Sepia,
+  Dark,
+}
+
+data class ReadingPreferences(
+    val fontSizeSp: Float = 18f,
+    val lineHeightMultiplier: Float = 1.55f,
+    val theme: ReadingTheme = ReadingTheme.FollowApp,
+)
+
+internal fun parseReadingTheme(value: String?): ReadingTheme =
+    ReadingTheme.entries.firstOrNull { it.name == value } ?: ReadingTheme.FollowApp
+
 enum class MusicRepeatMode {
   Off,
   All,
@@ -74,6 +90,7 @@ enum class AppTab {
   Library,
   Music,
   Memos,
+  Books,
   Settings,
 }
 
@@ -84,6 +101,7 @@ internal val defaultTabOrder =
         AppTab.Library,
         AppTab.Music,
         AppTab.Memos,
+        AppTab.Books,
         AppTab.Settings,
     )
 
@@ -94,7 +112,11 @@ internal fun parseTabOrder(value: String?): List<AppTab> {
           ?.mapNotNull { name -> AppTab.entries.firstOrNull { it.name == name } }
           ?.distinct()
           .orEmpty()
-  return saved + defaultTabOrder.filterNot(saved::contains)
+  return defaultTabOrder.filterNot(saved::contains).fold(saved.toMutableList()) { order, tab ->
+    val settingsIndex = order.indexOf(AppTab.Settings)
+    order.add(if (settingsIndex >= 0) settingsIndex else order.size, tab)
+    order
+  }
 }
 
 internal fun moveTab(order: List<AppTab>, tab: AppTab, offset: Int): List<AppTab> {
@@ -369,6 +391,7 @@ constructor(@param:ApplicationContext private val context: Context) {
   private val tabOrderKey = stringPreferencesKey("tab_order")
   private val disabledTabsKey = stringPreferencesKey("disabled_tabs")
   private val localMusicTreeUriKey = stringPreferencesKey("local_music_tree_uri")
+  private val localBooksTreeUriKey = stringPreferencesKey("local_books_tree_uri")
   private val musicShuffleEnabledKey = booleanPreferencesKey("music_shuffle_enabled")
   private val musicRepeatModeKey = stringPreferencesKey("music_repeat_mode")
   val useDynamicColor: Flow<Boolean> = context.settingsStore.data.map { it[dynamicColor] ?: true }
@@ -388,6 +411,8 @@ constructor(@param:ApplicationContext private val context: Context) {
       }
   val localMusicTreeUri: Flow<String?> =
       context.settingsStore.data.map { preferences -> preferences[localMusicTreeUriKey] }
+  val localBooksTreeUri: Flow<String?> =
+      context.settingsStore.data.map { preferences -> preferences[localBooksTreeUriKey] }
   val musicPlaybackSettings: Flow<MusicPlaybackSettings> =
       context.settingsStore.data.map { preferences ->
         MusicPlaybackSettings(
@@ -420,6 +445,15 @@ constructor(@param:ApplicationContext private val context: Context) {
   }
 
   suspend fun localMusicTreeUriValue(): String? = localMusicTreeUri.first()
+
+  suspend fun localBooksTreeUriValue(): String? = localBooksTreeUri.first()
+
+  suspend fun setLocalBooksTreeUri(value: String?) {
+    context.settingsStore.edit { preferences ->
+      if (value == null) preferences.remove(localBooksTreeUriKey)
+      else preferences[localBooksTreeUriKey] = value
+    }
+  }
 
   suspend fun musicPlaybackSettingsValue(): MusicPlaybackSettings = musicPlaybackSettings.first()
 
@@ -457,6 +491,38 @@ constructor(@param:ApplicationContext private val context: Context) {
       preferences[disabledTabsKey] =
           defaultTabOrder.filter(disabled::contains).joinToString(",", transform = AppTab::name)
     }
+  }
+}
+
+@Singleton
+class ReadingPreferencesRepository
+@Inject
+constructor(@param:ApplicationContext private val context: Context) {
+  private val fontSizeSpKey = floatPreferencesKey("reading_font_size_sp")
+  private val lineHeightMultiplierKey = floatPreferencesKey("reading_line_height_multiplier")
+  private val themeKey = stringPreferencesKey("reading_theme")
+
+  val preferences: Flow<ReadingPreferences> =
+      context.settingsStore.data.map { values ->
+        ReadingPreferences(
+            fontSizeSp = (values[fontSizeSpKey] ?: 18f).coerceIn(12f, 32f),
+            lineHeightMultiplier = (values[lineHeightMultiplierKey] ?: 1.55f).coerceIn(1.1f, 2.4f),
+            theme = parseReadingTheme(values[themeKey]),
+        )
+      }
+
+  suspend fun setFontSizeSp(value: Float) {
+    context.settingsStore.edit { it[fontSizeSpKey] = value.coerceIn(12f, 32f) }
+  }
+
+  suspend fun setLineHeightMultiplier(value: Float) {
+    context.settingsStore.edit {
+      it[lineHeightMultiplierKey] = value.coerceIn(1.1f, 2.4f)
+    }
+  }
+
+  suspend fun setTheme(value: ReadingTheme) {
+    context.settingsStore.edit { it[themeKey] = value.name }
   }
 }
 

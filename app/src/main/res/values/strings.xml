@@ -279,4 +279,45 @@
         <item quantity="one">Found %1$d local track</item>
         <item quantity="other">Found %1$d local tracks</item>
     </plurals>
+    <string name="books">Books</string>
+    <string name="no_books_select_folder">No book folder selected</string>
+    <string name="books_folder_summary">Choose a folder to build a private, on-device book shelf. XPOD only reads the folder you select.</string>
+    <string name="choose_books_folder">Choose book folder</string>
+    <string name="refresh_books">Refresh books</string>
+    <string name="cancel_books_scan">Cancel scan</string>
+    <string name="books_scan_cancelled">Book scan cancelled</string>
+    <string name="books_scan_failed">Could not read the selected book folder. Choose it again if access was removed.</string>
+    <plurals name="books_scan_complete">
+        <item quantity="one">Found %1$d book (%2$d failed)</item>
+        <item quantity="other">Found %1$d books (%2$d failed)</item>
+    </plurals>
+    <string name="search_books">Search title, author, or path</string>
+    <string name="no_books_found">No supported books were found in this folder.</string>
+    <string name="no_books_match">No books match these filters.</string>
+    <string name="open_book">Open book</string>
+    <string name="book_actions">More book actions</string>
+    <string name="book_sort">Sort books</string>
+    <string name="book_sort_title">Title</string>
+    <string name="book_sort_author">Author</string>
+    <string name="book_sort_recent">Recently read</string>
+    <string name="book_sort_added">Recently added</string>
+    <string name="book_format_epub">EPUB</string>
+    <string name="book_format_pdf">PDF</string>
+    <string name="book_progress">%1$d%% read</string>
+    <string name="could_not_update_book">Could not update book</string>
+    <string name="could_not_open_book">Could not open this book</string>
+    <string name="unsupported_format">This book format is not supported</string>
+    <string name="reading_font_size">Font size</string>
+    <string name="reading_line_height">Line spacing</string>
+    <string name="reading_theme">Reading theme</string>
+    <string name="reading_theme_follow_app">Follow app theme</string>
+    <string name="reading_theme_light">Light</string>
+    <string name="reading_theme_sepia">Sepia</string>
+    <string name="reading_theme_dark">Dark</string>
+    <string name="chapter">Chapter</string>
+    <string name="previous_chapter">Previous chapter</string>
+    <string name="next_chapter">Next chapter</string>
+    <string name="table_of_contents">Table of contents</string>
+    <string name="close_reader">Close reader</string>
+    <string name="book_page">%1$s, page %2$d</string>
 </resources>

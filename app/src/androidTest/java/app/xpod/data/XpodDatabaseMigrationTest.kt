@@ -165,6 +165,42 @@ class XpodDatabaseMigrationTest {
         }
   }
 
+  @Test
+  fun migrate5To6CreatesLocalBookAndProgressTables() {
+    helper.createDatabase(TEST_DATABASE, 5).close()
+
+    helper
+        .runMigrationsAndValidate(
+            TEST_DATABASE,
+            6,
+            true,
+            XpodDatabaseMigrations.MIGRATION_5_6,
+        )
+        .use { database ->
+          database.execSQL(
+              "INSERT INTO LocalBookEntity (id, documentUri, treeUri, title, author, language, format, fileSizeBytes, modifiedEpochMs, relativePath, coverCachePath, addedEpochMs, lastOpenedEpochMs, isFavorite) VALUES ('book:id', 'content://provider/document/book', 'content://provider/tree/books', 'Book', 'Author', 'en', 'EPUB', 12, 34, '', NULL, 56, 0, 0)"
+          )
+          database.execSQL(
+              "INSERT INTO BookProgressEntity (bookId, positionVersion, positionJson, sourceModifiedEpochMs, updatedEpochMs, readingSeconds) VALUES ('book:id', 1, '{\"kind\":\"epub\"}', 34, 78, 42)"
+          )
+          database.query("SELECT title, format FROM LocalBookEntity WHERE id = 'book:id'").use {
+              cursor ->
+            cursor.moveToFirst()
+            assertEquals("Book", cursor.getString(0))
+            assertEquals("EPUB", cursor.getString(1))
+          }
+          database
+              .query(
+                  "SELECT positionJson, readingSeconds FROM BookProgressEntity WHERE bookId = 'book:id'"
+              )
+              .use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("{\"kind\":\"epub\"}", cursor.getString(0))
+                assertEquals(42L, cursor.getLong(1))
+              }
+        }
+  }
+
   private companion object {
     const val TEST_DATABASE = "xpod-migration-test"
   }

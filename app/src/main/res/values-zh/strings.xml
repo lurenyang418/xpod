@@ -242,7 +242,7 @@
     <string name="cloud_memo_restore_failed_reason">无法恢复 Memo：%1$s</string>
     <string name="cloud_memo_delete_failed_reason">无法将 Memo 移到回收站：%1$s</string>
     <string name="cloud_memo_version_conflict">这条 Memo 已在其他位置更新，列表已刷新。</string>
-    <string name="local_music">本地音乐</string>
+    <string name="local_music">音乐</string>
     <string name="no_local_music_folder">尚未选择音乐文件夹</string>
     <string name="local_music_folder_summary">选择一个文件夹来建立仅保存在设备上的音乐库。XPOD 只会读取你选择的目录。</string>
     <string name="choose_music_folder">选择音乐文件夹</string>
@@ -266,4 +266,44 @@
     <plurals name="local_tracks_scanned">
         <item quantity="other">已找到 %1$d 首本地曲目</item>
     </plurals>
+    <string name="books">书库</string>
+    <string name="no_books_select_folder">尚未选择书籍目录</string>
+    <string name="books_folder_summary">选择一个目录建立本地书库。XPOD 只读取你选择的目录。</string>
+    <string name="choose_books_folder">选择书籍目录</string>
+    <string name="refresh_books">刷新书库</string>
+    <string name="cancel_books_scan">取消扫描</string>
+    <string name="books_scan_cancelled">已取消书籍扫描</string>
+    <string name="books_scan_failed">无法读取书籍目录；如果权限已失效，请重新选择。</string>
+    <plurals name="books_scan_complete">
+        <item quantity="other">找到 %1$d 本书（%2$d 个失败）</item>
+    </plurals>
+    <string name="search_books">搜索标题、作者或路径</string>
+    <string name="no_books_found">此目录中没有找到支持的书籍。</string>
+    <string name="no_books_match">没有符合当前筛选条件的书籍。</string>
+    <string name="open_book">打开书籍</string>
+    <string name="book_actions">更多书籍操作</string>
+    <string name="book_sort">排序书籍</string>
+    <string name="book_sort_title">标题</string>
+    <string name="book_sort_author">作者</string>
+    <string name="book_sort_recent">最近阅读</string>
+    <string name="book_sort_added">最近添加</string>
+    <string name="book_format_epub">EPUB</string>
+    <string name="book_format_pdf">PDF</string>
+    <string name="book_progress">已读 %1$d%%</string>
+    <string name="could_not_update_book">无法更新书籍</string>
+    <string name="could_not_open_book">无法打开这本书</string>
+    <string name="unsupported_format">不支持此书籍格式</string>
+    <string name="reading_font_size">字号</string>
+    <string name="reading_line_height">行距</string>
+    <string name="reading_theme">阅读主题</string>
+    <string name="reading_theme_follow_app">跟随应用主题</string>
+    <string name="reading_theme_light">浅色</string>
+    <string name="reading_theme_sepia">羊皮纸</string>
+    <string name="reading_theme_dark">深色</string>
+    <string name="chapter">章节</string>
+    <string name="previous_chapter">上一章</string>
+    <string name="next_chapter">下一章</string>
+    <string name="table_of_contents">目录</string>
+    <string name="close_reader">关闭阅读器</string>
+    <string name="book_page">%1$s，第 %2$d 页</string>
 </resources>

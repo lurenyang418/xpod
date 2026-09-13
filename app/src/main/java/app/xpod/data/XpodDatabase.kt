@@ -11,10 +11,12 @@ import androidx.room.RoomDatabase
             ArticleFeedEntity::class,
             ArticleEntity::class,
             LocalTrackEntity::class,
+            LocalBookEntity::class,
+            BookProgressEntity::class,
             PlaybackStateEntity::class,
             QueueItemEntity::class,
         ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class XpodDatabase : RoomDatabase() {
@@ -27,6 +29,10 @@ abstract class XpodDatabase : RoomDatabase() {
   abstract fun articles(): ArticleDao
 
   abstract fun localTracks(): LocalTrackDao
+
+  abstract fun localBooks(): LocalBookDao
+
+  abstract fun bookProgress(): BookProgressDao
 
   abstract fun playback(): PlaybackDao
 }

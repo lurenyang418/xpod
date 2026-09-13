@@ -72,4 +72,34 @@ object XpodDatabaseMigrations {
           )
         }
       }
+
+  val MIGRATION_5_6 =
+      object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+          db.execSQL(
+              "CREATE TABLE IF NOT EXISTS `LocalBookEntity` (`id` TEXT NOT NULL, `documentUri` TEXT NOT NULL, `treeUri` TEXT NOT NULL, `title` TEXT NOT NULL, `author` TEXT NOT NULL, `language` TEXT NOT NULL, `format` TEXT NOT NULL, `fileSizeBytes` INTEGER NOT NULL, `modifiedEpochMs` INTEGER NOT NULL, `relativePath` TEXT NOT NULL, `coverCachePath` TEXT, `addedEpochMs` INTEGER NOT NULL, `lastOpenedEpochMs` INTEGER NOT NULL, `isFavorite` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+          )
+          db.execSQL(
+              "CREATE INDEX IF NOT EXISTS `index_LocalBookEntity_treeUri` ON `LocalBookEntity` (`treeUri`)"
+          )
+          db.execSQL(
+              "CREATE INDEX IF NOT EXISTS `index_LocalBookEntity_title` ON `LocalBookEntity` (`title`)"
+          )
+          db.execSQL(
+              "CREATE INDEX IF NOT EXISTS `index_LocalBookEntity_relativePath` ON `LocalBookEntity` (`relativePath`)"
+          )
+          db.execSQL(
+              "CREATE INDEX IF NOT EXISTS `index_LocalBookEntity_lastOpenedEpochMs` ON `LocalBookEntity` (`lastOpenedEpochMs`)"
+          )
+          db.execSQL(
+              "CREATE INDEX IF NOT EXISTS `index_LocalBookEntity_isFavorite` ON `LocalBookEntity` (`isFavorite`)"
+          )
+          db.execSQL(
+              "CREATE INDEX IF NOT EXISTS `index_LocalBookEntity_format` ON `LocalBookEntity` (`format`)"
+          )
+          db.execSQL(
+              "CREATE TABLE IF NOT EXISTS `BookProgressEntity` (`bookId` TEXT NOT NULL, `positionVersion` INTEGER NOT NULL, `positionJson` TEXT NOT NULL, `sourceModifiedEpochMs` INTEGER NOT NULL, `updatedEpochMs` INTEGER NOT NULL, `readingSeconds` INTEGER NOT NULL, PRIMARY KEY(`bookId`))"
+          )
+        }
+      }
 }

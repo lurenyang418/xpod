@@ -8,5 +8,11 @@
             android:noHistory="true"
             android:permission="android.permission.DUMP"
             android:theme="@style/Theme.Xpod" />
+        <!-- SAF fixture for LocalBooksRepositoryIntegrationTest; hosted by the app so the
+             provider can be Kotlin and stay unexported. Debug builds only. -->
+        <provider
+            android:name="app.xpod.debug.BooksProvider"
+            android:authorities="books.integration.test"
+            android:exported="false" />
     </application>
 </manifest>
