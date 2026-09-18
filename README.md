@@ -47,6 +47,7 @@ More captured screens and the reproducible showcase-data workflow are available 
 - Scan the device video library automatically through MediaStore after granting `READ_MEDIA_VIDEO`, or select a folder with the Storage Access Framework for limited access. MediaStore covers indexed device videos; use folder selection for locations outside that library.
 - Recursively index common video files including 3GP, AVI, FLV, M4V, MKV, MOV, MP4, MPEG, MPG, TS, WebM, and WMV.
 - Play videos in an immersive Media3 player with fit-to-view rendering, pause/resume, 10-second rewind, 30-second forward, playback speed, and saved viewing progress.
+- While playing, open the current-folder queue from the player to switch videos; the video library also provides compact icon-only actions for rename, properties, and deletion.
 - Video playback is separate from the podcast/music background queue and pauses audio playback while a video is open.
 
 ### Books

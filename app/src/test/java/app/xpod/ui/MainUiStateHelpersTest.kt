@@ -2,6 +2,8 @@ package app.xpod.ui
 
 import app.xpod.data.ArticleEntity
 import app.xpod.data.EpisodeEntity
+import app.xpod.ui.coordination.unplayedEpisodeCount
+import app.xpod.ui.coordination.unreadArticleCount
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

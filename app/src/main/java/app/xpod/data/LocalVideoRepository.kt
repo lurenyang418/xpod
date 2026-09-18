@@ -2,8 +2,10 @@ package app.xpod.data
 
 import android.Manifest
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.IntentSender
 import android.database.Cursor
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -30,6 +32,12 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
+sealed interface VideoDeleteResult {
+  data object Completed : VideoDeleteResult
+
+  data class NeedsUserConfirmation(val intentSender: IntentSender) : VideoDeleteResult
+}
+
 @Singleton
 class LocalVideoRepository
 @Inject
@@ -55,7 +63,7 @@ constructor(
         val selectedTree = uri.toString()
         context.contentResolver.takePersistableUriPermission(
             uri,
-            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
         )
         val videos =
             try {
@@ -124,11 +132,76 @@ constructor(
     database.localVideos().updateProgress(id, positionMs.coerceAtLeast(0L), epochMs)
   }
 
+  suspend fun renameVideo(video: LocalVideoEntity, requestedTitle: String) {
+    withContext(Dispatchers.IO) {
+      val title = requestedTitle.trim()
+      require(title.isNotBlank()) { "Video title cannot be blank" }
+      val uri = video.documentUri.toUri()
+      val currentName = queryDisplayName(uri) ?: video.title
+      val extension = currentName.substringAfterLast('.', "").takeIf { it.isNotBlank() }
+      val displayName =
+          if (extension != null && !title.substringAfterLast('/').contains('.')) {
+            "$title.$extension"
+          } else {
+            title
+          }
+      if (DocumentsContract.isDocumentUri(context, uri)) {
+        check(DocumentsContract.renameDocument(context.contentResolver, uri, displayName) != null) {
+          "Unable to rename video"
+        }
+      } else {
+        val updated =
+            context.contentResolver.update(
+                uri,
+                ContentValues().apply {
+                  put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+                },
+                null,
+                null,
+            )
+        check(updated > 0) { "Unable to rename video" }
+      }
+    }
+  }
+
+  suspend fun deleteVideos(
+      videos: List<LocalVideoEntity>,
+      requestUserConfirmation: Boolean = true,
+  ): VideoDeleteResult =
+      withContext(Dispatchers.IO) {
+        if (videos.isEmpty()) return@withContext VideoDeleteResult.Completed
+        val uris = videos.map { it.documentUri.toUri() }.distinct()
+        val mediaUris = uris.filterNot { DocumentsContract.isDocumentUri(context, it) }
+        if (requestUserConfirmation && mediaUris.isNotEmpty()) {
+          return@withContext VideoDeleteResult.NeedsUserConfirmation(
+              MediaStore.createDeleteRequest(context.contentResolver, mediaUris).intentSender
+          )
+        }
+        uris.forEach { uri ->
+          val deleted =
+              if (DocumentsContract.isDocumentUri(context, uri)) {
+                DocumentsContract.deleteDocument(context.contentResolver, uri)
+              } else {
+                context.contentResolver.delete(uri, null, null) > 0
+              }
+          check(deleted) { "Unable to delete video: $uri" }
+        }
+        VideoDeleteResult.Completed
+      }
+
+  private fun queryDisplayName(uri: Uri): String? {
+    return context.contentResolver
+        .query(uri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)
+        ?.use { cursor ->
+          if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getString(0) else null
+        }
+  }
+
   private fun releaseTreePermission(uri: Uri) {
     runCatching {
       context.contentResolver.releasePersistableUriPermission(
           uri,
-          Intent.FLAG_GRANT_READ_URI_PERMISSION,
+          Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
       )
     }
   }

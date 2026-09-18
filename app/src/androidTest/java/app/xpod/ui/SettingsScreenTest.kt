@@ -18,6 +18,8 @@ import app.xpod.data.AppTab
 import app.xpod.data.ReadingPreferences
 import app.xpod.data.ThemeMode
 import app.xpod.data.defaultTabOrder
+import app.xpod.ui.coordination.CloudMemosUiState
+import app.xpod.ui.settings.SettingsScreen
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test

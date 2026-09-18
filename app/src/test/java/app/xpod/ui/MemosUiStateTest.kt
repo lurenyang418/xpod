@@ -3,6 +3,8 @@ package app.xpod.ui
 import app.xpod.data.CloudMemo
 import app.xpod.data.CloudMemoState
 import app.xpod.data.CloudMemoVisibility
+import app.xpod.ui.memos.MemosUiState
+import app.xpod.ui.memos.afterArchiveRestoreFailure
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame

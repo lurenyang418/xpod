@@ -17,6 +17,10 @@ import app.xpod.R
 import app.xpod.data.DownloadState
 import app.xpod.data.EpisodeEntity
 import app.xpod.data.PodcastEntity
+import app.xpod.ui.navigation.PodcastSubView
+import app.xpod.ui.podcasts.PodcastHubActions
+import app.xpod.ui.podcasts.PodcastHubScreen
+import app.xpod.ui.shell.MainUiState
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test

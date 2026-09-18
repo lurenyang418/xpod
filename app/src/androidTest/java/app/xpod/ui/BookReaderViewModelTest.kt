@@ -17,6 +17,8 @@ import app.xpod.data.reader.EpubSpineItem
 import app.xpod.data.reader.ReaderBlock
 import app.xpod.data.reader.ReaderChapter
 import app.xpod.data.reader.ReaderPositionCodec
+import app.xpod.ui.books.BookReaderUiState
+import app.xpod.ui.books.BookReaderViewModel
 import java.io.File
 import java.time.Clock
 import java.time.Instant

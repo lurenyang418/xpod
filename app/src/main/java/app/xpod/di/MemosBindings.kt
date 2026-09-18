@@ -3,7 +3,7 @@ package app.xpod.di
 import android.content.Context
 import app.xpod.data.CloudMemosGateway
 import app.xpod.data.CloudMemosRepository
-import app.xpod.ui.MemosStrings
+import app.xpod.ui.memos.MemosStrings
 import dagger.Binds
 import dagger.Module
 import dagger.Provides

@@ -3,7 +3,7 @@ package app.xpod
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import app.xpod.ui.XpodApp
+import app.xpod.ui.shell.XpodApp
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint

@@ -18,6 +18,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.xpod.data.DownloadPhase
 import app.xpod.data.DownloadState
 import app.xpod.data.EpisodeEntity
+import app.xpod.ui.podcasts.LibraryScreen
+import app.xpod.ui.shell.MainUiState
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test

@@ -9,6 +9,9 @@ import app.xpod.data.CloudMemosConnection
 import app.xpod.data.CloudMemosCredentialsException
 import app.xpod.data.CloudMemosGateway
 import app.xpod.data.CloudMemosNotConfiguredException
+import app.xpod.ui.memos.MemosStrings
+import app.xpod.ui.memos.MemosViewModel
+import app.xpod.ui.memos.cloudMemosFailureReason
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi

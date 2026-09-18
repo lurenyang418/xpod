@@ -2,6 +2,9 @@ package app.xpod.ui
 
 import app.xpod.data.LOCAL_MUSIC_MEDIA_SOURCE
 import app.xpod.data.LocalTrackEntity
+import app.xpod.ui.music.MusicFolder
+import app.xpod.ui.music.musicFolderContents
+import app.xpod.ui.music.shouldStartAutomaticMusicScan
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
