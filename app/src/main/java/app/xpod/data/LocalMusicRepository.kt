@@ -179,10 +179,9 @@ constructor(
                         documentUri = mediaUri.toString(),
                         treeUri = LOCAL_MUSIC_MEDIA_SOURCE,
                         title =
-                            resultCursor
-                                .stringOrEmpty(titleIndex)
-                                .trim()
-                                .takeUnless { it.isBlank() } ?: titleFrom(displayName),
+                            resultCursor.stringOrEmpty(titleIndex).trim().takeUnless {
+                              it.isBlank()
+                            } ?: titleFrom(displayName),
                         artist = resultCursor.stringOrEmpty(artistIndex).trim(),
                         album = resultCursor.stringOrEmpty(albumIndex).trim(),
                         durationMs = resultCursor.longOrZero(durationIndex),
@@ -270,7 +269,10 @@ constructor(
                   null,
                   cancellationSignal,
               )
-          continuation.resume(requireMusicChildrenCursor(cursor, childrenUri.toString())) { _, rejectedCursor, _ ->
+          continuation.resume(requireMusicChildrenCursor(cursor, childrenUri.toString())) {
+              _,
+              rejectedCursor,
+              _ ->
             rejectedCursor.close()
           }
         } catch (error: Throwable) {

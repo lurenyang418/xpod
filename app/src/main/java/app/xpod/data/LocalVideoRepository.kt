@@ -6,11 +6,12 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.IntentSender
+import android.content.pm.PackageManager
 import android.database.Cursor
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.CancellationSignal
-import android.content.pm.PackageManager
+import android.os.Process
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.util.Log
@@ -36,6 +37,12 @@ sealed interface VideoDeleteResult {
   data object Completed : VideoDeleteResult
 
   data class NeedsUserConfirmation(val intentSender: IntentSender) : VideoDeleteResult
+}
+
+sealed interface VideoRenameResult {
+  data object Completed : VideoRenameResult
+
+  data class NeedsUserConfirmation(val intentSender: IntentSender) : VideoRenameResult
 }
 
 @Singleton
@@ -132,37 +139,49 @@ constructor(
     database.localVideos().updateProgress(id, positionMs.coerceAtLeast(0L), epochMs)
   }
 
-  suspend fun renameVideo(video: LocalVideoEntity, requestedTitle: String) {
-    withContext(Dispatchers.IO) {
-      val title = requestedTitle.trim()
-      require(title.isNotBlank()) { "Video title cannot be blank" }
-      val uri = video.documentUri.toUri()
-      val currentName = queryDisplayName(uri) ?: video.title
-      val extension = currentName.substringAfterLast('.', "").takeIf { it.isNotBlank() }
-      val displayName =
-          if (extension != null && !title.substringAfterLast('/').contains('.')) {
-            "$title.$extension"
-          } else {
-            title
+  suspend fun renameVideo(
+      video: LocalVideoEntity,
+      requestedTitle: String,
+      requestUserConfirmation: Boolean = true,
+  ): VideoRenameResult =
+      withContext(Dispatchers.IO) {
+        val title = requestedTitle.trim()
+        require(title.isNotBlank()) { "Video title cannot be blank" }
+        val uri = video.documentUri.toUri()
+        val currentName = queryDisplayName(uri) ?: video.title
+        val extension = currentName.substringAfterLast('.', "").takeIf { it.isNotBlank() }
+        val displayName =
+            if (extension != null && !title.substringAfterLast('/').contains('.')) {
+              "$title.$extension"
+            } else {
+              title
+            }
+        if (DocumentsContract.isDocumentUri(context, uri)) {
+          check(
+              DocumentsContract.renameDocument(context.contentResolver, uri, displayName) != null
+          ) {
+            "Unable to rename video"
           }
-      if (DocumentsContract.isDocumentUri(context, uri)) {
-        check(DocumentsContract.renameDocument(context.contentResolver, uri, displayName) != null) {
-          "Unable to rename video"
-        }
-      } else {
-        val updated =
-            context.contentResolver.update(
-                uri,
-                ContentValues().apply {
-                  put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
-                },
-                null,
-                null,
+          VideoRenameResult.Completed
+        } else {
+          if (requestUserConfirmation && !hasWritePermission(uri)) {
+            return@withContext VideoRenameResult.NeedsUserConfirmation(
+                MediaStore.createWriteRequest(context.contentResolver, listOf(uri)).intentSender
             )
-        check(updated > 0) { "Unable to rename video" }
+          }
+          val updated =
+              context.contentResolver.update(
+                  uri,
+                  ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+                  },
+                  null,
+                  null,
+              )
+          check(updated > 0) { "Unable to rename video" }
+          VideoRenameResult.Completed
+        }
       }
-    }
-  }
 
   suspend fun deleteVideos(
       videos: List<LocalVideoEntity>,
@@ -196,6 +215,14 @@ constructor(
           if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getString(0) else null
         }
   }
+
+  private fun hasWritePermission(uri: Uri): Boolean =
+      context.checkUriPermission(
+          uri,
+          Process.myPid(),
+          Process.myUid(),
+          Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+      ) == PackageManager.PERMISSION_GRANTED
 
   private fun releaseTreePermission(uri: Uri) {
     runCatching {
@@ -254,7 +281,8 @@ constructor(
               val displayNameIndex =
                   resultCursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
               val titleIndex = resultCursor.getColumnIndex(MediaStore.Video.Media.TITLE)
-              val durationIndex = resultCursor.getColumnIndex(MediaStore.Video.VideoColumns.DURATION)
+              val durationIndex =
+                  resultCursor.getColumnIndex(MediaStore.Video.VideoColumns.DURATION)
               val widthIndex = resultCursor.getColumnIndex(MediaStore.Video.VideoColumns.WIDTH)
               val heightIndex = resultCursor.getColumnIndex(MediaStore.Video.VideoColumns.HEIGHT)
               val sizeIndex = resultCursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
@@ -274,10 +302,9 @@ constructor(
                         documentUri = mediaUri.toString(),
                         treeUri = LOCAL_VIDEO_MEDIA_SOURCE,
                         title =
-                            resultCursor
-                                .stringOrEmpty(titleIndex)
-                                .trim()
-                                .takeUnless { it.isBlank() } ?: videoTitleFrom(displayName),
+                            resultCursor.stringOrEmpty(titleIndex).trim().takeUnless {
+                              it.isBlank()
+                            } ?: videoTitleFrom(displayName),
                         durationMs = resultCursor.longOrZero(durationIndex),
                         width = resultCursor.intOrZero(widthIndex),
                         height = resultCursor.intOrZero(heightIndex),
@@ -355,7 +382,10 @@ constructor(
                   null,
                   cancellationSignal,
               )
-          continuation.resume(requireVideoChildrenCursor(cursor, childrenUri.toString())) { _, rejectedCursor, _ ->
+          continuation.resume(requireVideoChildrenCursor(cursor, childrenUri.toString())) {
+              _,
+              rejectedCursor,
+              _ ->
             rejectedCursor.close()
           }
         } catch (error: Throwable) {
@@ -462,20 +492,19 @@ internal fun mediaStoreVideoId(volume: String, mediaId: Long): String =
 internal fun mergeLocalVideos(
     videos: List<LocalVideoEntity>,
     existing: Map<String, LocalVideoEntity>,
-): List<LocalVideoEntity> =
-    videos.map { video ->
-      val old = existing[video.id]
-      val sourceChanged =
-          old != null &&
-              old.modifiedEpochMs > 0L &&
-              video.modifiedEpochMs > 0L &&
-              old.modifiedEpochMs != video.modifiedEpochMs
-      video.copy(
-          lastPositionMs = if (sourceChanged) 0L else old?.lastPositionMs ?: video.lastPositionMs,
-          lastOpenedEpochMs =
-              if (sourceChanged) 0L else old?.lastOpenedEpochMs ?: video.lastOpenedEpochMs,
-      )
-    }
+): List<LocalVideoEntity> = videos.map { video ->
+  val old = existing[video.id]
+  val sourceChanged =
+      old != null &&
+          old.modifiedEpochMs > 0L &&
+          video.modifiedEpochMs > 0L &&
+          old.modifiedEpochMs != video.modifiedEpochMs
+  video.copy(
+      lastPositionMs = if (sourceChanged) 0L else old?.lastPositionMs ?: video.lastPositionMs,
+      lastOpenedEpochMs =
+          if (sourceChanged) 0L else old?.lastOpenedEpochMs ?: video.lastOpenedEpochMs,
+  )
+}
 
 internal fun videoTitleFrom(displayName: String): String =
     displayName.substringBeforeLast('.', displayName).trim().ifBlank { "Untitled video" }

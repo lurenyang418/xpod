@@ -17,6 +17,7 @@ import app.xpod.data.LOCAL_VIDEO_MEDIA_SOURCE
 import app.xpod.data.LocalVideoEntity
 import app.xpod.data.LocalVideoRepository
 import app.xpod.data.VideoDeleteResult
+import app.xpod.data.VideoRenameResult
 import app.xpod.data.appendRelativePath
 import app.xpod.data.isGlobalVideoSource
 import app.xpod.playback.PlaybackController
@@ -112,7 +113,9 @@ constructor(
   private var progressWriteJob: Job? = null
   private val progressWrites = Channel<VideoProgressWrite>(Channel.UNLIMITED)
   private val deleteRequests = Channel<android.content.IntentSender>(Channel.BUFFERED)
+  private val renameRequests = Channel<android.content.IntentSender>(Channel.BUFFERED)
   private var pendingDeleteVideos: List<LocalVideoEntity> = emptyList()
+  private var pendingRename: Pair<LocalVideoEntity, String>? = null
   private val playerQueueIds = MutableStateFlow<List<String>>(emptyList())
   private val playerMutationMutex = Mutex()
   private var automaticScanStarted = false
@@ -120,6 +123,7 @@ constructor(
   private val _status = MutableStateFlow<UiStatus?>(null)
   val status: StateFlow<UiStatus?> = _status.asStateFlow()
   val videoDeleteRequests = deleteRequests.receiveAsFlow()
+  val videoRenameRequests = renameRequests.receiveAsFlow()
 
   val player: ExoPlayer =
       ExoPlayer.Builder(context).build().apply {
@@ -155,8 +159,7 @@ constructor(
                       state.value.videos
                           .firstOrNull { it.id == previousId }
                           ?.durationMs
-                          ?.takeIf { it > 0L }
-                          ?: _playerState.value.positionMs
+                          ?.takeIf { it > 0L } ?: _playerState.value.positionMs
                   enqueuePositionWrite(previousId, completedPosition)
                 }
                 playerVideoId.value = nextId
@@ -260,18 +263,17 @@ constructor(
           .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VideoUiState())
 
   init {
-    progressWriteJob =
-        viewModelScope.launch {
-          for (write in progressWrites) {
-            try {
-              runCatchingCancellable {
-                localVideos.updateProgress(write.id, write.positionMs, write.epochMs)
-              }
-            } finally {
-              write.completion?.complete(Unit)
-            }
+    progressWriteJob = viewModelScope.launch {
+      for (write in progressWrites) {
+        try {
+          runCatchingCancellable {
+            localVideos.updateProgress(write.id, write.positionMs, write.epochMs)
           }
+        } finally {
+          write.completion?.complete(Unit)
         }
+      }
+    }
     progressJob = viewModelScope.launch {
       while (isActive) {
         if (playerVideoId.value != null && player.isPlaying) {
@@ -296,8 +298,7 @@ constructor(
       if (shouldStartAutomaticVideoScan(source, hasIndexedVideos)) {
         automaticScanStarted = true
         scan {
-          if (isGlobalVideoSource(source)) localVideos.refresh()
-          else localVideos.enableAutoScan()
+          if (isGlobalVideoSource(source)) localVideos.refresh() else localVideos.enableAutoScan()
         }
       } else {
         scanJob = null
@@ -348,12 +349,49 @@ constructor(
   }
 
   fun renameVideo(video: LocalVideoEntity, title: String) {
+    renameVideo(video, title, requestUserConfirmation = true)
+  }
+
+  fun onRenameConfirmationResult(approved: Boolean) {
+    val pending = pendingRename
+    pendingRename = null
+    if (!approved || pending == null) return
+    renameVideo(pending.first, pending.second, requestUserConfirmation = false)
+  }
+
+  private fun renameVideo(
+      video: LocalVideoEntity,
+      title: String,
+      requestUserConfirmation: Boolean,
+  ) {
     viewModelScope.launch {
       runCatchingCancellable {
-            localVideos.renameVideo(video, title)
-            localVideos.refresh()
+            when (
+                val result =
+                    localVideos.renameVideo(
+                        video,
+                        title,
+                        requestUserConfirmation = requestUserConfirmation,
+                    )
+            ) {
+              VideoRenameResult.Completed -> {
+                localVideos.refresh()
+                result
+              }
+              is VideoRenameResult.NeedsUserConfirmation -> result
+            }
           }
-          .onSuccess { _status.value = UiStatus(context.getString(R.string.video_renamed)) }
+          .onSuccess { result ->
+            when (result) {
+              VideoRenameResult.Completed -> {
+                _status.value = UiStatus(context.getString(R.string.video_renamed))
+              }
+              is VideoRenameResult.NeedsUserConfirmation -> {
+                pendingRename = video to title
+                renameRequests.trySend(result.intentSender)
+              }
+            }
+          }
           .onFailure {
             _status.value =
                 UiStatus(context.getString(R.string.video_rename_failed), StatusSeverity.Error)
@@ -429,26 +467,25 @@ constructor(
     viewModelScope.launch {
       playerMutationMutex.withLock {
         val audioWasPlaying = audioPlayback.nowPlaying.value?.isPlaying == true
-        val result =
-            runCatchingCancellable {
-              runCatchingCancellable { audioPlayback.pause() }
-                  .onFailure { Log.w("XPOD", "Unable to pause audio before video playback", it) }
-              persistPositionNow()
-              playerQueueIds.value = queue.map(LocalVideoEntity::id)
-              player.setMediaItems(
-                  queue.map { item ->
-                    MediaItem.Builder().setMediaId(item.id).setUri(item.documentUri).build()
-                  },
-                  targetIndex,
-                  videoResumePosition(video.lastPositionMs, video.durationMs),
-              )
-              playerVideoId.value = video.id
-              _playerState.value = VideoPlayerState(status = VideoPlaybackStatus.Buffering)
-              player.prepare()
-              player.play()
-              syncPlayerState()
-              persistPosition()
-            }
+        val result = runCatchingCancellable {
+          runCatchingCancellable { audioPlayback.pause() }
+              .onFailure { Log.w("XPOD", "Unable to pause audio before video playback", it) }
+          persistPositionNow()
+          playerQueueIds.value = queue.map(LocalVideoEntity::id)
+          player.setMediaItems(
+              queue.map { item ->
+                MediaItem.Builder().setMediaId(item.id).setUri(item.documentUri).build()
+              },
+              targetIndex,
+              videoResumePosition(video.lastPositionMs, video.durationMs),
+          )
+          playerVideoId.value = video.id
+          _playerState.value = VideoPlayerState(status = VideoPlaybackStatus.Buffering)
+          player.prepare()
+          player.play()
+          syncPlayerState()
+          persistPosition()
+        }
         if (result.isSuccess) return@withLock
         if (audioWasPlaying) {
           runCatchingCancellable {

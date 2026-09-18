@@ -65,8 +65,8 @@ import app.xpod.data.DownloadState
 import app.xpod.data.EpisodeEntity
 import app.xpod.data.PodcastEntity
 import app.xpod.playback.NowPlaying
-import app.xpod.ui.shell.MainUiState
 import app.xpod.ui.player.Artwork
+import app.xpod.ui.shell.MainUiState
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter

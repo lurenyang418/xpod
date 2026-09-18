@@ -8,6 +8,9 @@ XPOD is a Kotlin and Jetpack Compose Android podcast client. The app targets And
 
 - `./gradlew assembleDebug` builds the debug APK.
 - `./gradlew testDebugUnitTest` runs local unit tests.
+- `./gradlew spotlessCheck` verifies Kotlin and Gradle formatting with ktfmt.
+- `./gradlew spotlessApply` formats the repository with the configured ktfmt version.
+- `./gradlew assembleRelease` builds the optimized release APK.
 - `./gradlew connectedDebugAndroidTest` runs instrumented tests on a connected device or emulator.
 
 ## Engineering Rules
@@ -17,4 +20,5 @@ XPOD is a Kotlin and Jetpack Compose Android podcast client. The app targets And
 - Preserve stable podcast and episode identifiers when changing feed code.
 - Keep Media3 dependencies on the version declared in `gradle/libs.versions.toml`.
 - Use the Storage Access Framework for user-selected files and folders. Library-wide media scans use the narrowly scoped platform permissions `READ_MEDIA_AUDIO` and `READ_MEDIA_VIDEO` with MediaStore. Do not add broad storage access such as `MANAGE_EXTERNAL_STORAGE`; keep the SAF-limited alternative available and update the README when storage access behavior changes.
-- Run the focused test suite for every changed behavior before committing.
+- Run `spotlessCheck`, the focused test suite, and the relevant build task for every changed behavior before committing.
+- Before publishing a release, run `spotlessCheck testDebugUnitTest lintDebug assembleRelease` and complete a real-device smoke test.

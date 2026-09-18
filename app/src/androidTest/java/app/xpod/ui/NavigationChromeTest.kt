@@ -51,9 +51,7 @@ class NavigationChromeTest {
     }
 
     routes.forEach { route ->
-      compose
-          .onNodeWithText(context.getString(destinationLabelResource(route)))
-          .assertIsDisplayed()
+      compose.onNodeWithText(context.getString(destinationLabelResource(route))).assertIsDisplayed()
     }
     compose.onAllNodesWithText(context.getString(R.string.library)).assertCountEquals(0)
   }

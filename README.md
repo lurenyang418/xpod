@@ -4,7 +4,7 @@
 
 XPOD is a local-first podcast and article reader for Android 13+. It brings podcast RSS, article RSS/Atom, offline playback, a native article reader, and local music and video libraries into one Jetpack Compose app. Libraries can use platform-wide scanning or a user-selected folder through Android's Storage Access Framework.
 
-Current version: **0.9.8** · Android **13+** · **arm64-v8a** · [Apache-2.0](LICENSE)
+Current version: **0.9.9** · Android **13+** · **arm64-v8a** · [Apache-2.0](LICENSE)
 
 ## Screenshots
 
@@ -124,6 +124,16 @@ Run the recommended checks before submitting a change:
 
 ```bash
 ./gradlew spotlessCheck testDebugUnitTest assembleDebug lintDebug
+```
+
+Spotless uses the repository-pinned ktfmt version to check Kotlin and Gradle
+formatting. Run `./gradlew spotlessApply` when formatting changes are needed,
+then review the resulting diff before committing.
+
+Before publishing a release, run the release-oriented checks:
+
+```bash
+./gradlew spotlessCheck testDebugUnitTest lintDebug assembleRelease
 ```
 
 With a connected device or emulator:

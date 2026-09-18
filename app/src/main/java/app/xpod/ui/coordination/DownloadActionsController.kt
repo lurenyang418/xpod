@@ -42,7 +42,9 @@ internal class DownloadActionsController(
               .enqueue(episode)
               .fold(
                   { showStatus(context.getString(R.string.download_queued), StatusSeverity.Info) },
-                  { showStatus(context.getString(R.string.could_not_download), StatusSeverity.Error) },
+                  {
+                    showStatus(context.getString(R.string.could_not_download), StatusSeverity.Error)
+                  },
               )
       DownloadAction.Remove -> {
         downloads.remove(episode.id)

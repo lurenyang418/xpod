@@ -7,7 +7,6 @@ import app.xpod.data.ArticleEntity
 import app.xpod.data.ArticleFeedEntity
 import app.xpod.data.ReaderRepository
 import app.xpod.ui.shared.StatusSeverity
-import app.xpod.util.runCatchingCancellable
 import java.util.HashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

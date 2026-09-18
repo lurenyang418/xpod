@@ -2,27 +2,17 @@ package app.xpod.ui.shell
 
 import android.Manifest
 import android.app.Activity
-import android.app.PictureInPictureParams
-import android.content.pm.PackageManager
-import android.util.Rational
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.IntentSenderRequest
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,11 +24,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import androidx.core.view.WindowCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.xpod.R
@@ -61,9 +48,9 @@ import app.xpod.ui.memos.MemosViewModel
 import app.xpod.ui.music.MusicViewModel
 import app.xpod.ui.navigation.AppRoute
 import app.xpod.ui.navigation.toAppRoutes
-import app.xpod.ui.podcasts.PodcastHubActions
 import app.xpod.ui.player.MiniPlaybackSummary
 import app.xpod.ui.player.buildPictureInPictureParams
+import app.xpod.ui.podcasts.PodcastHubActions
 import app.xpod.ui.settings.SettingsViewModel
 import app.xpod.ui.shared.StatusSeverity
 import app.xpod.ui.shared.XPOD_RELEASES_URL
@@ -120,9 +107,18 @@ internal fun XpodHome(
       rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
         videoViewModel.onDeleteConfirmationResult(it.resultCode == Activity.RESULT_OK)
       }
+  val videoRenameLauncher =
+      rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
+        videoViewModel.onRenameConfirmationResult(it.resultCode == Activity.RESULT_OK)
+      }
   LaunchedEffect(videoViewModel) {
     videoViewModel.videoDeleteRequests.collect { intentSender ->
       videoDeleteLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
+    }
+  }
+  LaunchedEffect(videoViewModel) {
+    videoViewModel.videoRenameRequests.collect { intentSender ->
+      videoRenameLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
     }
   }
   val booksViewModel: BooksViewModel = hiltViewModel()
@@ -197,8 +193,7 @@ internal fun XpodHome(
     videoPermissionLauncher.launch(Manifest.permission.READ_MEDIA_VIDEO)
   }
   val startAutomaticVideoScan = {
-    if (video.hasVideoPermission) videoViewModel.startAutomaticScan()
-    else requestVideoPermission()
+    if (video.hasVideoPermission) videoViewModel.startAutomaticScan() else requestVideoPermission()
   }
   val startGlobalMusicScan = {
     if (music.hasAudioPermission) musicViewModel.startGlobalScan()

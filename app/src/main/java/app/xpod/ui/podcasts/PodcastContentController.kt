@@ -8,8 +8,8 @@ import app.xpod.data.FeedHttpException
 import app.xpod.data.PodcastEntity
 import app.xpod.data.PodcastRepository
 import app.xpod.data.SubscriptionRepository
-import app.xpod.ui.shared.StatusSeverity
 import app.xpod.data.UnsupportedFeedUrlException
+import app.xpod.ui.shared.StatusSeverity
 import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,7 +39,8 @@ internal class PodcastContentController(
   private val refreshing = MutableStateFlow(false)
 
   val state: StateFlow<PodcastContentState> =
-      combine(podcasts.podcasts(), podcasts.allEpisodes(), refreshing) { all, library, isRefreshing ->
+      combine(podcasts.podcasts(), podcasts.allEpisodes(), refreshing) { all, library, isRefreshing
+            ->
             PodcastContentState(
                 podcasts = all,
                 isRefreshing = isRefreshing,

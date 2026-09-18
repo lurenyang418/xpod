@@ -146,7 +146,9 @@ class PodcastHubScreenTest {
   fun loadingEpisodesShowsAnAccessibleProgressIndicator() {
     val podcast = podcast()
     val loadingLabel =
-        InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.loading_episodes)
+        InstrumentationRegistry.getInstrumentation()
+            .targetContext
+            .getString(R.string.loading_episodes)
     compose.mainClock.autoAdvance = false
 
     compose.setContent {

@@ -3,8 +3,8 @@ package app.xpod.ui.coordination
 import android.content.Context
 import android.util.Log
 import app.xpod.R
-import app.xpod.data.ArticlesReadChange
 import app.xpod.data.ArticleEntity
+import app.xpod.data.ArticlesReadChange
 import app.xpod.data.EpisodeEntity
 import app.xpod.data.PodcastEntity
 import app.xpod.data.PodcastPlayedChange
@@ -200,7 +200,9 @@ internal class BulkMarkController(
 }
 
 internal fun unplayedEpisodeCount(episodes: List<EpisodeEntity>, podcastId: String): Int =
-    episodes.count { it.podcastId == podcastId && !it.isPlayed }
+    episodes.count {
+      it.podcastId == podcastId && !it.isPlayed
+    }
 
 internal fun unreadArticleCount(
     articles: List<ArticleEntity>,

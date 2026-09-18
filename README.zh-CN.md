@@ -4,7 +4,7 @@
 
 XPOD 是一款面向 Android 13+ 的本地优先播客与文章阅读器。它将播客 RSS、文章 RSS/Atom、离线播放、原生文章阅读以及本地音乐和视频库整合在同一个 Jetpack Compose 应用中。媒体库可以使用平台级扫描，也可以通过 Android 存储访问框架选择文件夹进行限制访问。
 
-当前版本：**0.9.8** · Android **13+** · **arm64-v8a** · [Apache-2.0](LICENSE)
+当前版本：**0.9.9** · Android **13+** · **arm64-v8a** · [Apache-2.0](LICENSE)
 
 ## 截图
 
@@ -124,6 +124,15 @@ Debug 包名为 `tech.lury.xpod.debug`，可以和正式版包名 `tech.lury.xpo
 
 ```bash
 ./gradlew spotlessCheck testDebugUnitTest assembleDebug lintDebug
+```
+
+Spotless 使用仓库固定的 ktfmt 版本检查 Kotlin 和 Gradle 文件格式。需要
+格式化时运行 `./gradlew spotlessApply`，然后审查格式化产生的 diff 再提交。
+
+发布正式版本前建议运行面向 Release 的检查：
+
+```bash
+./gradlew spotlessCheck testDebugUnitTest lintDebug assembleRelease
 ```
 
 连接真机或模拟器后运行：

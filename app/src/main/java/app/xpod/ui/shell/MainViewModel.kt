@@ -20,8 +20,6 @@ import app.xpod.data.SubscriptionRepository
 import app.xpod.data.UnsupportedFeedUrlException
 import app.xpod.playback.NowPlaying
 import app.xpod.playback.PlaybackController
-import app.xpod.ui.podcasts.PodcastContentController
-import app.xpod.ui.reader.ReaderContentController
 import app.xpod.ui.coordination.BulkActionsUiState
 import app.xpod.ui.coordination.BulkMarkController
 import app.xpod.ui.coordination.CloudMemosController
@@ -35,6 +33,8 @@ import app.xpod.ui.navigation.persistNavigationState
 import app.xpod.ui.navigation.reduceNavigation
 import app.xpod.ui.navigation.resolveRoute
 import app.xpod.ui.navigation.restoreNavigationState
+import app.xpod.ui.podcasts.PodcastContentController
+import app.xpod.ui.reader.ReaderContentController
 import app.xpod.ui.shared.StatusSeverity
 import app.xpod.ui.shared.UiStatus
 import app.xpod.util.runCatchingCancellable
@@ -56,7 +56,6 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import org.xmlpull.v1.XmlPullParserException
 
 data class MainUiState(
     val podcasts: List<PodcastEntity> = emptyList(),
@@ -124,7 +123,8 @@ constructor(
         showStatus(message, severity)
       }
   private val podcastContentController =
-      PodcastContentController(podcasts, subscriptions, context, viewModelScope) { message, severity ->
+      PodcastContentController(podcasts, subscriptions, context, viewModelScope) { message, severity
+        ->
         showStatus(message, severity)
       }
   private val readerContentController =
@@ -484,5 +484,4 @@ constructor(
 
   fun saveArticleToCloudMemos(article: ArticleEntity, feedTitle: String?) =
       cloudMemosController.saveArticle(article, feedTitle)
-
 }
