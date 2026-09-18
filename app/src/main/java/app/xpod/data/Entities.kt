@@ -95,6 +95,22 @@ data class LocalTrackEntity(
     val relativePath: String = "",
 )
 
+@Entity(indices = [Index("treeUri"), Index("title"), Index("relativePath")])
+data class LocalVideoEntity(
+    @PrimaryKey val id: String,
+    val documentUri: String,
+    val treeUri: String,
+    val title: String,
+    val durationMs: Long,
+    val width: Int,
+    val height: Int,
+    val fileSizeBytes: Long,
+    val modifiedEpochMs: Long,
+    val relativePath: String = "",
+    val lastPositionMs: Long = 0L,
+    val lastOpenedEpochMs: Long = 0L,
+)
+
 enum class PlaybackMediaType {
   Podcast,
   Music;

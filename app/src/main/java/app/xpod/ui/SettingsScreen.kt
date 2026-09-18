@@ -58,13 +58,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import app.xpod.BuildConfig
 import app.xpod.R
@@ -589,6 +589,7 @@ private fun tabLabel(tab: AppTab): String =
           AppTab.Podcasts -> R.string.podcasts
           AppTab.Reader -> R.string.reader
           AppTab.Music -> R.string.local_music
+          AppTab.Video -> R.string.local_video
           AppTab.Memos -> R.string.memos
           AppTab.Books -> R.string.books
           AppTab.Settings -> R.string.settings

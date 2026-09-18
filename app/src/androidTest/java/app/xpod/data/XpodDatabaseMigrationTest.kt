@@ -4,6 +4,7 @@ import androidx.room.testing.MigrationTestHelper
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -198,6 +199,47 @@ class XpodDatabaseMigrationTest {
                 assertEquals("{\"kind\":\"epub\"}", cursor.getString(0))
                 assertEquals(42L, cursor.getLong(1))
               }
+        }
+  }
+
+  @Test
+  fun migrate6To7CreatesLocalVideoTableWithZeroedProgress() {
+    helper.createDatabase(TEST_DATABASE, 6).close()
+
+    helper
+        .runMigrationsAndValidate(
+            TEST_DATABASE,
+            7,
+            true,
+            XpodDatabaseMigrations.MIGRATION_6_7,
+        )
+        .use { database ->
+          database.execSQL(
+              "INSERT INTO LocalVideoEntity (id, documentUri, treeUri, title, durationMs, width, height, fileSizeBytes, modifiedEpochMs, relativePath, lastPositionMs, lastOpenedEpochMs) VALUES ('video:id', 'content://provider/document/video', 'content://provider/tree/videos', 'Video', 120000, 1920, 1080, 42, 34, '', 0, 0)"
+          )
+          database
+              .query(
+                  "SELECT title, durationMs, width, height, lastPositionMs FROM LocalVideoEntity WHERE id = 'video:id'"
+              )
+              .use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("Video", cursor.getString(0))
+                assertEquals(120_000L, cursor.getLong(1))
+                assertEquals(1_920, cursor.getInt(2))
+                assertEquals(1_080, cursor.getInt(3))
+                assertEquals(0L, cursor.getLong(4))
+              }
+          val indexes = mutableSetOf<String>()
+          database
+              .query(
+                  "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'LocalVideoEntity'"
+              )
+              .use { cursor ->
+                while (cursor.moveToNext()) indexes += cursor.getString(0)
+              }
+          assertTrue(indexes.contains("index_LocalVideoEntity_treeUri"))
+          assertTrue(indexes.contains("index_LocalVideoEntity_title"))
+          assertTrue(indexes.contains("index_LocalVideoEntity_relativePath"))
         }
   }
 

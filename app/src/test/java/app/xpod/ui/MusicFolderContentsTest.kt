@@ -1,7 +1,10 @@
 package app.xpod.ui
 
+import app.xpod.data.LOCAL_MUSIC_MEDIA_SOURCE
 import app.xpod.data.LocalTrackEntity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MusicFolderContentsTest {
@@ -63,6 +66,13 @@ class MusicFolderContentsTest {
     assertEquals("Jazz", contents.currentFolderPath)
     assertEquals(listOf("Jazz/Live"), contents.folders.map(MusicFolder::path))
     assertEquals(listOf("live"), contents.playbackTracks.map(LocalTrackEntity::id))
+  }
+
+  @Test
+  fun automaticScanUsesGlobalSourceWhenThereIsNoIndex() {
+    assertTrue(shouldStartAutomaticMusicScan(source = null))
+    assertFalse(shouldStartAutomaticMusicScan(LOCAL_MUSIC_MEDIA_SOURCE))
+    assertFalse(shouldStartAutomaticMusicScan("content://tree"))
   }
 
   private fun track(id: String, title: String, relativePath: String) =

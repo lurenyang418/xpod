@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class LocalMusicRepositoryTest {
@@ -24,6 +25,14 @@ class LocalMusicRepositoryTest {
         localTrackId("provider-a", "track"),
         localTrackId("provider-b", "track"),
     )
+    assertEquals(
+        mediaStoreTrackId("external", 42L),
+        mediaStoreTrackId("external", 42L),
+    )
+    assertNotEquals(
+        mediaStoreTrackId("external", 42L),
+        mediaStoreTrackId("external", 43L),
+    )
   }
 
   @Test
@@ -39,5 +48,12 @@ class LocalMusicRepositoryTest {
     assertEquals("Jazz", appendRelativePath("", "Jazz"))
     assertEquals("Live", appendRelativePath("/", "/Live/"))
     assertEquals("Jazz/Live", appendRelativePath("Jazz/", "/Live/"))
+  }
+
+  @Test
+  fun nullSafCursorFailsFast() {
+    assertThrows(IllegalStateException::class.java) {
+      requireMusicChildrenCursor(null, "content://children")
+    }
   }
 }

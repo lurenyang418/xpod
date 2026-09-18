@@ -11,6 +11,7 @@ internal enum class AppRoute(val key: String) {
   Podcasts("podcasts"),
   Reader("reader"),
   Music("music"),
+  Video("video"),
   Memos("memos"),
   Books("books"),
   Settings("settings"),
@@ -133,6 +134,7 @@ internal fun AppTab.toAppRoute(): AppRoute =
       AppTab.Podcasts -> AppRoute.Podcasts
       AppTab.Reader -> AppRoute.Reader
       AppTab.Music -> AppRoute.Music
+      AppTab.Video -> AppRoute.Video
       AppTab.Memos -> AppRoute.Memos
       AppTab.Books -> AppRoute.Books
       AppTab.Settings -> AppRoute.Settings

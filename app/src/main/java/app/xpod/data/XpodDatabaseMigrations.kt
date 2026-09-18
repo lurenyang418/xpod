@@ -98,4 +98,22 @@ object XpodDatabaseMigrations {
           )
         }
       }
+
+  val MIGRATION_6_7 =
+      object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+          db.execSQL(
+              "CREATE TABLE IF NOT EXISTS `LocalVideoEntity` (`id` TEXT NOT NULL, `documentUri` TEXT NOT NULL, `treeUri` TEXT NOT NULL, `title` TEXT NOT NULL, `durationMs` INTEGER NOT NULL, `width` INTEGER NOT NULL, `height` INTEGER NOT NULL, `fileSizeBytes` INTEGER NOT NULL, `modifiedEpochMs` INTEGER NOT NULL, `relativePath` TEXT NOT NULL, `lastPositionMs` INTEGER NOT NULL, `lastOpenedEpochMs` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+          )
+          db.execSQL(
+              "CREATE INDEX IF NOT EXISTS `index_LocalVideoEntity_treeUri` ON `LocalVideoEntity` (`treeUri`)"
+          )
+          db.execSQL(
+              "CREATE INDEX IF NOT EXISTS `index_LocalVideoEntity_title` ON `LocalVideoEntity` (`title`)"
+          )
+          db.execSQL(
+              "CREATE INDEX IF NOT EXISTS `index_LocalVideoEntity_relativePath` ON `LocalVideoEntity` (`relativePath`)"
+          )
+        }
+      }
 }

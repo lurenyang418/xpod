@@ -3,6 +3,7 @@ package app.xpod.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,10 +19,12 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -38,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,6 +68,7 @@ internal fun MusicScreen(
     togglePlayback: () -> Unit,
     playNext: (LocalTrackEntity) -> Unit,
     addToQueue: (LocalTrackEntity) -> Unit,
+    startGlobalScan: () -> Unit = {},
 ) {
   if (state.selectedTreeUri == null) {
     Column(
@@ -82,7 +87,10 @@ internal fun MusicScreen(
           Modifier.padding(top = 8.dp, bottom = 20.dp),
           style = MaterialTheme.typography.bodyMedium,
       )
-      Button(onClick = chooseFolder, enabled = !state.isScanning) {
+      Button(onClick = startGlobalScan, enabled = !state.isScanning) {
+        Text(stringResource(R.string.scan_all_music))
+      }
+      TextButton(onClick = chooseFolder, enabled = !state.isScanning) {
         Text(stringResource(R.string.choose_music_folder))
       }
       if (state.isScanning) {
@@ -96,38 +104,116 @@ internal fun MusicScreen(
   }
 
   val folderPlaybackTracks = state.playbackTracks
+  var libraryActionsExpanded by remember { mutableStateOf(false) }
+  var searchOpen by rememberSaveable { mutableStateOf(false) }
 
   Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
     Row(
         Modifier.fillMaxWidth().padding(top = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-      Text(
-          stringResource(R.string.local_music),
-          Modifier.weight(1f),
-          style = MaterialTheme.typography.headlineSmall,
-      )
-      if (state.isScanning) {
-        CircularProgressIndicator(Modifier.size(24.dp))
-        IconButton(onClick = cancelScan, modifier = Modifier.testTag("local_music_cancel_scan")) {
-          Icon(Icons.Filled.Close, stringResource(R.string.cancel_local_music_scan))
+      if (searchOpen) {
+        OutlinedTextField(
+            value = state.query,
+            onValueChange = setQuery,
+            modifier = Modifier.weight(1f).padding(vertical = 4.dp),
+            textStyle = MaterialTheme.typography.bodyMedium,
+            placeholder = {
+              Text(
+                  stringResource(R.string.search_local_music),
+                  style = MaterialTheme.typography.bodyMedium,
+              )
+            },
+            leadingIcon = { Icon(Icons.Filled.Search, null) },
+            trailingIcon = {
+              if (state.query.isNotBlank()) {
+                IconButton(onClick = { setQuery("") }) {
+                  Icon(Icons.Filled.Close, stringResource(R.string.clear_search))
+                }
+              }
+            },
+            singleLine = true,
+        )
+        IconButton(
+            onClick = {
+              searchOpen = false
+              setQuery("")
+            }
+        ) {
+          Icon(Icons.Filled.Close, stringResource(R.string.close_search))
         }
       } else {
-        IconButton(onClick = refresh) {
-          Icon(Icons.Filled.Refresh, stringResource(R.string.refresh_local_music))
+        Text(
+            stringResource(R.string.local_music),
+            Modifier.weight(1f),
+            style = MaterialTheme.typography.headlineSmall,
+        )
+        if (state.isScanning) {
+          CircularProgressIndicator(Modifier.size(24.dp))
+          IconButton(
+              onClick = cancelScan,
+              modifier = Modifier.testTag("local_music_cancel_scan"),
+          ) {
+            Icon(Icons.Filled.Close, stringResource(R.string.cancel_local_music_scan))
+          }
+        } else {
+          IconButton(onClick = refresh) {
+            Icon(Icons.Filled.Refresh, stringResource(R.string.refresh_local_music))
+          }
+        }
+        IconButton(onClick = { searchOpen = true }, enabled = !state.isScanning) {
+          Icon(Icons.Filled.Search, stringResource(R.string.search_local_music_action))
+        }
+        if (!state.isGlobalSource) {
+          IconButton(onClick = startGlobalScan, enabled = !state.isScanning) {
+            Icon(Icons.Filled.LibraryMusic, stringResource(R.string.scan_all_music))
+          }
+        }
+        Box {
+          IconButton(
+              onClick = { libraryActionsExpanded = true },
+              enabled = !state.isScanning,
+          ) {
+            Icon(Icons.Filled.MoreVert, stringResource(R.string.local_music_actions))
+          }
+          DropdownMenu(
+              expanded = libraryActionsExpanded,
+              onDismissRequest = { libraryActionsExpanded = false },
+          ) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.choose_music_folder)) },
+                leadingIcon = { Icon(Icons.Filled.FolderOpen, null) },
+                onClick = {
+                  libraryActionsExpanded = false
+                  chooseFolder()
+                },
+            )
+          }
         }
       }
-      IconButton(onClick = chooseFolder, enabled = !state.isScanning) {
-        Icon(Icons.Filled.FolderOpen, stringResource(R.string.choose_music_folder))
+    }
+    if (state.isGlobalSource && !state.hasAudioPermission) {
+      Surface(
+          color = MaterialTheme.colorScheme.errorContainer,
+          shape = MaterialTheme.shapes.medium,
+          modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+      ) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Text(
+              stringResource(R.string.audio_permission_required),
+              Modifier.weight(1f),
+              color = MaterialTheme.colorScheme.onErrorContainer,
+              style = MaterialTheme.typography.bodyMedium,
+          )
+          TextButton(onClick = startGlobalScan) {
+            Text(stringResource(R.string.grant_audio_permission))
+          }
+        }
       }
     }
-    OutlinedTextField(
-        value = state.query,
-        onValueChange = setQuery,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        label = { Text(stringResource(R.string.search_local_music)) },
-        singleLine = true,
-    )
     if (state.query.isBlank()) {
       MusicBreadcrumbs(state.currentFolderPath, openFolder)
     }
@@ -146,7 +232,7 @@ internal fun MusicScreen(
       )
       Button(
           onClick = { folderPlaybackTracks.firstOrNull()?.let(play) },
-          enabled = folderPlaybackTracks.isNotEmpty() && !state.isScanning,
+          enabled = folderPlaybackTracks.isNotEmpty(),
           modifier = Modifier.testTag("local_music_play_all"),
       ) {
         Icon(Icons.Filled.PlayArrow, null)
@@ -170,7 +256,7 @@ internal fun MusicScreen(
         items(state.visibleFolders, key = { "folder:${it.path}" }) { folder ->
           FolderRow(
               folder = folder,
-              enabled = !state.isScanning,
+              enabled = true,
               onOpen = { openFolder(folder.path) },
           )
         }
@@ -180,7 +266,7 @@ internal fun MusicScreen(
               track = track,
               active = active,
               isPlaying = active && nowPlaying.isPlaying,
-              enabled = !state.isScanning,
+              enabled = true,
               onPlay = {
                 if (active) togglePlayback() else play(track)
               },

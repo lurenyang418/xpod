@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.xpod.R
+import app.xpod.data.LOCAL_MUSIC_MEDIA_SOURCE
 import app.xpod.data.LocalMusicRepository
 import app.xpod.data.LocalTrackEntity
 import app.xpod.data.appendRelativePath
@@ -36,6 +37,8 @@ data class MusicUiState(
     val playbackTracks: List<LocalTrackEntity> = emptyList(),
     val currentFolderPath: String = "",
     val selectedTreeUri: String? = null,
+    val isGlobalSource: Boolean = false,
+    val hasAudioPermission: Boolean = false,
     val query: String = "",
     val isScanning: Boolean = false,
 )
@@ -58,17 +61,28 @@ constructor(
   private val musicQuery = MutableStateFlow("")
   private val musicFolderPath = MutableStateFlow("")
   private val musicScanning = MutableStateFlow(false)
+  private val audioPermission = MutableStateFlow(localMusic.hasAudioPermission())
   private var musicScanJob: Job? = null
+  private var automaticScanStarted = false
+  private var automaticAudioPermissionRequested = false
   private val _status = MutableStateFlow<UiStatus?>(null)
   val status: StateFlow<UiStatus?> = _status
 
   val musicState: StateFlow<MusicUiState> =
-      combine(localMusic.tracks, localMusic.treeUri, musicQuery, musicScanning, musicFolderPath) {
-              tracks,
-              treeUri,
-              query,
-              scanning,
-              requestedFolderPath ->
+      combine(
+              localMusic.tracks,
+              localMusic.treeUri,
+              musicQuery,
+              musicScanning,
+              musicFolderPath,
+              audioPermission,
+          ) { values ->
+            @Suppress("UNCHECKED_CAST") val tracks = values[0] as List<LocalTrackEntity>
+            val treeUri = values[1] as String?
+            val query = values[2] as String
+            val scanning = values[3] as Boolean
+            val requestedFolderPath = values[4] as String
+            val hasAudioPermission = values[5] as Boolean
             val normalizedQuery = query.trim()
             val folderContents = musicFolderContents(tracks, requestedFolderPath)
             val searchTracks =
@@ -91,6 +105,8 @@ constructor(
                     if (normalizedQuery.isBlank()) folderContents.playbackTracks else searchTracks,
                 currentFolderPath = folderContents.currentFolderPath,
                 selectedTreeUri = treeUri,
+                isGlobalSource = treeUri == LOCAL_MUSIC_MEDIA_SOURCE,
+                hasAudioPermission = hasAudioPermission,
                 query = query,
                 isScanning = scanning,
             )
@@ -103,6 +119,39 @@ constructor(
 
   fun dismissStatus() {
     _status.value = null
+  }
+
+  /** Returns true only for the first automatic permission prompt in this ViewModel lifetime. */
+  fun shouldRequestAutomaticAudioPermission(): Boolean {
+    if (automaticAudioPermissionRequested) return false
+    automaticAudioPermissionRequested = true
+    return true
+  }
+
+  fun onMusicScreenVisible() {
+    audioPermission.value = localMusic.hasAudioPermission()
+    if (!audioPermission.value || musicScanJob?.isActive == true || automaticScanStarted) return
+    musicScanJob = viewModelScope.launch {
+      val source = localMusic.sourceValue()
+      if (shouldStartAutomaticMusicScan(source)) {
+        automaticScanStarted = true
+        scanGlobalMusic()
+      } else {
+        musicScanJob = null
+      }
+    }
+  }
+
+  fun onAudioPermissionResult(granted: Boolean) {
+    audioPermission.value = granted && localMusic.hasAudioPermission()
+    if (audioPermission.value) startGlobalScan()
+  }
+
+  fun startGlobalScan() {
+    audioPermission.value = localMusic.hasAudioPermission()
+    if (!audioPermission.value || musicScanJob?.isActive == true) return
+    automaticScanStarted = true
+    musicScanJob = viewModelScope.launch { scanGlobalMusic() }
   }
 
   fun selectMusicFolder(uri: Uri) {
@@ -135,6 +184,43 @@ constructor(
               },
               {
                 Log.w("XPOD", "Unable to scan the selected music folder", it)
+                _status.value =
+                    UiStatus(
+                        context.getString(R.string.local_music_scan_failed),
+                        StatusSeverity.Error,
+                    )
+              },
+          )
+    } finally {
+      musicScanning.value = false
+      musicScanJob = null
+    }
+  }
+
+  private suspend fun scanGlobalMusic() {
+    musicScanning.value = true
+    try {
+      runCatchingCancellable { localMusic.enableGlobalScan() }
+          .fold(
+              { count ->
+                musicFolderPath.value = ""
+                musicQuery.value = ""
+                runCatchingCancellable {
+                      player.removeMissingLocalTracks(localMusic.trackIds())
+                    }
+                    .onFailure { Log.w("XPOD", "Unable to clean the local music queue", it) }
+                _status.value =
+                    UiStatus(
+                        context.resources.getQuantityString(
+                            R.plurals.local_tracks_scanned,
+                            count,
+                            count,
+                        )
+                    )
+              },
+              {
+                automaticScanStarted = false
+                Log.w("XPOD", "Unable to scan global music", it)
                 _status.value =
                     UiStatus(
                         context.getString(R.string.local_music_scan_failed),
@@ -230,6 +316,8 @@ constructor(
         }
   }
 }
+
+internal fun shouldStartAutomaticMusicScan(source: String?): Boolean = source == null
 
 internal fun musicFolderContents(
     tracks: List<LocalTrackEntity>,

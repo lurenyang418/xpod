@@ -157,6 +157,32 @@ interface LocalTrackDao {
 }
 
 @Dao
+interface LocalVideoDao {
+  @Query("SELECT * FROM LocalVideoEntity ORDER BY title COLLATE NOCASE")
+  fun observeAll(): Flow<List<LocalVideoEntity>>
+
+  @Query("SELECT COUNT(*) FROM LocalVideoEntity") suspend fun count(): Int
+
+  @Query("SELECT * FROM LocalVideoEntity ORDER BY title COLLATE NOCASE")
+  suspend fun all(): List<LocalVideoEntity>
+
+  @Query("SELECT * FROM LocalVideoEntity WHERE id = :id")
+  suspend fun find(id: String): LocalVideoEntity?
+
+  @Query("SELECT id FROM LocalVideoEntity") suspend fun ids(): List<String>
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun upsertAll(items: List<LocalVideoEntity>)
+
+  @Query(
+      "UPDATE LocalVideoEntity SET lastPositionMs = :positionMs, lastOpenedEpochMs = :epochMs WHERE id = :id"
+  )
+  suspend fun updateProgress(id: String, positionMs: Long, epochMs: Long)
+
+  @Query("DELETE FROM LocalVideoEntity") suspend fun clear()
+}
+
+@Dao
 interface LocalBookDao {
   @Query(
       """

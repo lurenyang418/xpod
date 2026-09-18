@@ -1,7 +1,10 @@
 package app.xpod.ui
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Rect
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,14 +15,15 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -43,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDrawerState
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -51,21 +56,28 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.LocalActivity
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -80,6 +92,11 @@ import app.xpod.data.reader.withBookProgress
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlin.math.abs
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -93,6 +110,26 @@ internal fun BookReaderScreen(
   val drawerState = rememberDrawerState(DrawerValue.Closed)
   val scope = rememberCoroutineScope()
   var showSettings by remember { mutableStateOf(false) }
+  val view = androidx.compose.ui.platform.LocalView.current
+  val activity = LocalActivity.current
+  val isPdf = state.pdfPageCount > 0
+
+  DisposableEffect(activity, view, isPdf) {
+    val window = activity?.window
+    if (!isPdf || window == null) {
+      onDispose {}
+    } else {
+      val controller = WindowCompat.getInsetsController(window, view)
+      val previousBehavior = controller.systemBarsBehavior
+      controller.systemBarsBehavior =
+          WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+      controller.hide(WindowInsetsCompat.Type.systemBars())
+      onDispose {
+        controller.systemBarsBehavior = previousBehavior
+        controller.show(WindowInsetsCompat.Type.systemBars())
+      }
+    }
+  }
 
   LaunchedEffect(bookId) { viewModel.openBook(bookId) }
   DisposableEffect(lifecycleOwner, viewModel) {
@@ -149,21 +186,42 @@ internal fun BookReaderScreen(
           }
         },
     ) {
-      ScaffoldForBookReader(
-          title = state.title,
-          onBack = {
-            viewModel.flushProgress()
-            onBack()
-          },
-          onOpenContents = { scope.launch { drawerState.open() } },
-          onOpenSettings = { showSettings = true },
-      ) { padding ->
-        ReaderBody(
-            bookId = bookId,
-            state = state,
-            viewModel = viewModel,
-            modifier = Modifier.fillMaxSize().padding(padding),
-        )
+      if (isPdf) {
+        Box(Modifier.fillMaxSize()) {
+          ReaderBody(
+              bookId = bookId,
+              state = state,
+              viewModel = viewModel,
+              modifier = Modifier.fillMaxSize().padding(top = 64.dp),
+          )
+          PdfReaderTopBar(
+              title = state.title,
+              onBack = {
+                viewModel.flushProgress()
+                onBack()
+              },
+              onOpenContents = { scope.launch { drawerState.open() } },
+              onOpenSettings = { showSettings = true },
+              modifier = Modifier.align(Alignment.TopCenter),
+          )
+        }
+      } else {
+        ScaffoldForBookReader(
+            title = state.title,
+            onBack = {
+              viewModel.flushProgress()
+              onBack()
+            },
+            onOpenContents = { scope.launch { drawerState.open() } },
+            onOpenSettings = { showSettings = true },
+        ) { padding ->
+          ReaderBody(
+              bookId = bookId,
+              state = state,
+              viewModel = viewModel,
+              modifier = Modifier.fillMaxSize().padding(padding),
+          )
+        }
       }
     }
   }
@@ -202,6 +260,45 @@ internal fun BookReaderScreen(
         setTheme = viewModel::setTheme,
         onDismiss = { showSettings = false },
     )
+  }
+}
+
+@Composable
+private fun PdfReaderTopBar(
+    title: String,
+    onBack: () -> Unit,
+    onOpenContents: () -> Unit,
+    onOpenSettings: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+  val containerColor =
+      MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
+          .compositeOver(MaterialTheme.colorScheme.background)
+  Surface(
+      modifier = modifier.fillMaxWidth().statusBarsPadding(),
+      color = containerColor,
+      tonalElevation = 3.dp,
+  ) {
+    Row(
+        modifier = Modifier.fillMaxWidth().height(64.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+      IconButton(onClick = onBack) {
+        Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.close_reader))
+      }
+      Text(
+          text = title,
+          maxLines = 1,
+          style = MaterialTheme.typography.titleLarge,
+          modifier = Modifier.weight(1f),
+      )
+      IconButton(onClick = onOpenContents) {
+        Icon(Icons.Filled.Menu, stringResource(R.string.table_of_contents))
+      }
+      IconButton(onClick = onOpenSettings) {
+        Icon(Icons.Filled.Settings, stringResource(R.string.reading_theme))
+      }
+    }
   }
 }
 
@@ -339,7 +436,6 @@ private fun ReaderBody(
   }
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun PdfReaderBody(
     bookId: String,
@@ -347,18 +443,17 @@ private fun PdfReaderBody(
     viewModel: BookReaderViewModel,
     modifier: Modifier,
 ) {
-  val pagerState =
-      rememberPagerState(
-          initialPage = state.pdfPosition.pageIndex,
-          pageCount = { state.pdfPageCount },
-      )
+  val listState = rememberLazyListState()
   val density = androidx.compose.ui.platform.LocalDensity.current
-  LaunchedEffect(state.pdfPageCount, state.pdfPosition.pageIndex) {
+  var initialPositionRestored by remember(bookId, state.pdfPageCount) { mutableStateOf(false) }
+  LaunchedEffect(bookId, state.pdfPageCount) {
     val target = state.pdfPosition.pageIndex.coerceIn(0, (state.pdfPageCount - 1).coerceAtLeast(0))
-    if (pagerState.currentPage != target) pagerState.scrollToPage(target)
+    if (listState.firstVisibleItemIndex != target) listState.scrollToItem(target)
+    initialPositionRestored = true
   }
-  LaunchedEffect(bookId, pagerState) {
-    snapshotFlow { pagerState.currentPage to !pagerState.canScrollForward }
+  LaunchedEffect(bookId, listState, initialPositionRestored) {
+    if (!initialPositionRestored) return@LaunchedEffect
+    snapshotFlow { listState.currentPdfPage() to !listState.canScrollForward }
         .distinctUntilChanged()
         .collect { (page, isAtDocumentEnd) ->
           viewModel.recordPdfProgress(
@@ -371,60 +466,211 @@ private fun PdfReaderBody(
   BoxWithConstraints(modifier) {
     val widthPx = with(density) { maxWidth.roundToPx() }
     val heightPx = with(density) { maxHeight.roundToPx() }
-    HorizontalPager(
-        state = pagerState,
+    val renderHeightPx = maxOf(heightPx, widthPx * 3)
+    LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
-    ) { pageIndex ->
-      var scale by remember(pageIndex) { mutableFloatStateOf(1f) }
-      var offsetX by remember(pageIndex) { mutableFloatStateOf(0f) }
-      var offsetY by remember(pageIndex) { mutableFloatStateOf(0f) }
-      val transformState = rememberTransformableState { _, zoomChange, panChange, _ ->
-        val nextScale = (scale * zoomChange).coerceIn(1f, 4f)
-        val maxOffsetX = widthPx * (nextScale - 1f) / 2f
-        val maxOffsetY = heightPx * (nextScale - 1f) / 2f
-        scale = nextScale
-        offsetX = (offsetX + panChange.x).coerceIn(-maxOffsetX, maxOffsetX)
-        offsetY = (offsetY + panChange.y).coerceIn(-maxOffsetY, maxOffsetY)
-      }
-      val bitmap by
-          produceState<android.graphics.Bitmap?>(
-              initialValue = null,
-              pageIndex,
-              widthPx,
-              heightPx,
-          ) {
-            value =
-                runCatching { viewModel.renderPdfPage(pageIndex, widthPx, heightPx) }.getOrNull()
-          }
-      Box(
-          modifier =
-              Modifier.fillMaxSize()
-                  .transformable(
-                      state = transformState,
-                      // At the default scale, leave horizontal drags to HorizontalPager.
-                      // Once zoomed, consume panning so the page can be explored.
-                      canPan = { scale > 1f },
-                  )
-                  .graphicsLayer(
-                      scaleX = scale,
-                      scaleY = scale,
-                      translationX = offsetX,
-                      translationY = offsetY,
-                  ),
-          contentAlignment = Alignment.Center,
-      ) {
-        bitmap?.let { rendered ->
-          androidx.compose.foundation.Image(
-              bitmap = rendered.asImageBitmap(),
-              contentDescription = stringResource(R.string.book_page, state.title, pageIndex + 1),
-              contentScale = ContentScale.Fit,
-              modifier = Modifier.fillMaxSize(),
-          )
-        }
+        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+      items(
+          count = state.pdfPageCount,
+          key = { index -> "pdf-page:$index" },
+      ) { pageIndex ->
+        PdfPage(
+            bookId = bookId,
+            pageIndex = pageIndex,
+            title = state.title,
+            viewModel = viewModel,
+            widthPx = widthPx,
+            renderHeightPx = renderHeightPx,
+            modifier = Modifier.fillMaxWidth(),
+        )
       }
     }
   }
 }
+
+private fun LazyListState.currentPdfPage(): Int {
+  val viewportStart = layoutInfo.viewportStartOffset
+  val viewportEnd = layoutInfo.viewportEndOffset
+  return layoutInfo.visibleItemsInfo
+      .maxByOrNull { item ->
+        val visibleStart = maxOf(item.offset, viewportStart)
+        val visibleEnd = minOf(item.offset + item.size, viewportEnd)
+        (visibleEnd - visibleStart).coerceAtLeast(0)
+      }
+      ?.index
+      ?: firstVisibleItemIndex
+}
+
+@Composable
+private fun PdfPage(
+    bookId: String,
+    pageIndex: Int,
+    title: String,
+    viewModel: BookReaderViewModel,
+    widthPx: Int,
+    renderHeightPx: Int,
+    modifier: Modifier,
+) {
+  val bitmap by
+      produceState<Bitmap?>(initialValue = null, bookId, pageIndex, widthPx, renderHeightPx) {
+        value =
+            runCatching { viewModel.renderPdfPage(pageIndex, widthPx, renderHeightPx) }.getOrNull()
+      }
+  val contentBounds by
+      produceState<Rect?>(initialValue = null, bitmap) {
+        value = bitmap?.let { rendered ->
+          withContext(Dispatchers.Default) { findPdfContentBounds(rendered) }
+        }
+      }
+  val source =
+      bitmap?.let { rendered -> contentBounds ?: Rect(0, 0, rendered.width, rendered.height) }
+  val aspectRatio =
+      source?.let { it.width().toFloat() / it.height().coerceAtLeast(1).toFloat() } ?: PDF_PAGE_ASPECT_RATIO
+  var scale by rememberSaveable(bookId, pageIndex) { mutableFloatStateOf(1f) }
+  var offsetX by rememberSaveable(bookId, pageIndex) { mutableFloatStateOf(0f) }
+  var offsetY by rememberSaveable(bookId, pageIndex) { mutableFloatStateOf(0f) }
+  val pageHeightPx = (widthPx / aspectRatio).roundToInt().coerceAtLeast(1)
+  LaunchedEffect(pageIndex, widthPx, pageHeightPx) {
+    val maxOffsetX = widthPx * (scale - 1f) / 2f
+    val maxOffsetY = pageHeightPx * (scale - 1f) / 2f
+    offsetX = offsetX.coerceIn(-maxOffsetX, maxOffsetX)
+    offsetY = offsetY.coerceIn(-maxOffsetY, maxOffsetY)
+  }
+  val transformState = rememberTransformableState { _, zoomChange, panChange, _ ->
+    val nextScale = (scale * zoomChange).coerceIn(1f, 4f)
+    val maxOffsetX = widthPx * (nextScale - 1f) / 2f
+    val maxOffsetY = pageHeightPx * (nextScale - 1f) / 2f
+    scale = nextScale
+    offsetX = (offsetX + panChange.x).coerceIn(-maxOffsetX, maxOffsetX)
+    offsetY = (offsetY + panChange.y).coerceIn(-maxOffsetY, maxOffsetY)
+  }
+  Box(
+      modifier =
+          modifier
+              .aspectRatio(aspectRatio)
+              .transformable(
+                  state = transformState,
+                  // At the default scale, let LazyColumn handle vertical scrolling. Once
+                  // zoomed in, consume panning so the current page can be explored.
+                  canPan = { scale > 1.01f },
+              )
+              .graphicsLayer(
+                  scaleX = scale,
+                  scaleY = scale,
+                  translationX = offsetX,
+                  translationY = offsetY,
+              ),
+      contentAlignment = Alignment.Center,
+  ) {
+    bitmap?.let { rendered ->
+      val bounds = source ?: Rect(0, 0, rendered.width, rendered.height)
+      val pageDescription = stringResource(R.string.book_page, title, pageIndex + 1)
+      Canvas(
+          Modifier.fillMaxSize().semantics { contentDescription = pageDescription }
+      ) {
+        val sourceWidth = bounds.width().coerceAtLeast(1)
+        val sourceHeight = bounds.height().coerceAtLeast(1)
+        val fitScale =
+            min(size.width / sourceWidth.toFloat(), size.height / sourceHeight.toFloat())
+        val destinationWidth = (sourceWidth * fitScale).roundToInt().coerceAtLeast(1)
+        val destinationHeight = (sourceHeight * fitScale).roundToInt().coerceAtLeast(1)
+        drawImage(
+            image = rendered.asImageBitmap(),
+            srcOffset = androidx.compose.ui.unit.IntOffset(bounds.left, bounds.top),
+            srcSize = androidx.compose.ui.unit.IntSize(sourceWidth, sourceHeight),
+            dstOffset =
+                androidx.compose.ui.unit.IntOffset(
+                    ((size.width - destinationWidth) / 2f).roundToInt(),
+                    ((size.height - destinationHeight) / 2f).roundToInt(),
+                ),
+            dstSize = androidx.compose.ui.unit.IntSize(destinationWidth, destinationHeight),
+            filterQuality = FilterQuality.Medium,
+        )
+      }
+    }
+  }
+}
+
+private fun findPdfContentBounds(bitmap: Bitmap): Rect {
+  val width = bitmap.width
+  val height = bitmap.height
+  if (width < 2 || height < 2) return Rect(0, 0, width, height)
+
+  val edgeSamples = pdfEdgeSamples(bitmap)
+  val background = pdfBackgroundColor(edgeSamples)
+  if (!isPdfBackgroundReliable(edgeSamples, background)) {
+    return Rect(0, 0, width, height)
+  }
+  val step = maxOf(1, maxOf(width, height) / 720)
+  var left = width
+  var top = height
+  var right = 0
+  var bottom = 0
+  for (y in 0 until height step step) {
+    for (x in 0 until width step step) {
+      if (pdfPixelDistance(bitmap.getPixel(x, y), background) >= PDF_CONTENT_THRESHOLD) {
+        left = min(left, x)
+        top = min(top, y)
+        right = maxOf(right, x)
+        bottom = maxOf(bottom, y)
+      }
+    }
+  }
+  if (left >= right || top >= bottom) return Rect(0, 0, width, height)
+
+  val paddingX = maxOf(step * 2, (width * PDF_CONTENT_PADDING_RATIO).roundToInt())
+  val paddingY = maxOf(step * 2, (height * PDF_CONTENT_PADDING_RATIO).roundToInt())
+  return Rect(
+      (left - paddingX).coerceAtLeast(0),
+      (top - paddingY).coerceAtLeast(0),
+      (right + paddingX + 1).coerceAtMost(width),
+      (bottom + paddingY + 1).coerceAtMost(height),
+  )
+}
+
+private fun pdfEdgeSamples(bitmap: Bitmap): List<Int> {
+  val lastX = bitmap.width - 1
+  val lastY = bitmap.height - 1
+  val samplePoints =
+      arrayOf(
+          0 to 0,
+          lastX to 0,
+          0 to lastY,
+          lastX to lastY,
+          bitmap.width / 2 to 0,
+          bitmap.width / 2 to lastY,
+          0 to (bitmap.height / 2),
+          lastX to (bitmap.height / 2),
+      )
+  return samplePoints.map { (x, y) -> bitmap.getPixel(x, y) }
+}
+
+private fun pdfBackgroundColor(samples: List<Int>): Int {
+  return samples.minByOrNull { candidate ->
+    samples.sumOf { sample -> pdfPixelDistance(candidate, sample) }
+  } ?: samples.first()
+}
+
+internal fun isPdfBackgroundReliable(samples: List<Int>, background: Int): Boolean =
+    samples.isNotEmpty() &&
+        samples.maxOf { sample -> pdfPixelDistance(sample, background) } <=
+            PDF_BACKGROUND_EDGE_THRESHOLD
+
+private fun pdfPixelDistance(first: Int, second: Int): Int =
+    maxOf(
+        abs(pdfRed(first) - pdfRed(second)),
+        abs(pdfGreen(first) - pdfGreen(second)),
+        abs(pdfBlue(first) - pdfBlue(second)),
+    )
+
+private fun pdfRed(color: Int): Int = (color ushr 16) and 0xFF
+
+private fun pdfGreen(color: Int): Int = (color ushr 8) and 0xFF
+
+private fun pdfBlue(color: Int): Int = color and 0xFF
 
 @Composable
 private fun ReaderBlockView(
@@ -541,6 +787,10 @@ private const val MAX_READER_IMAGE_EDGE_PX = 2_048
 private const val MAX_READER_IMAGE_PIXELS = 4L * 1024L * 1024L
 private const val MAX_READER_IMAGE_BYTES = MAX_READER_IMAGE_PIXELS * 4L
 private const val MAX_READER_IMAGE_SAMPLE = 1 shl 30
+private const val PDF_CONTENT_THRESHOLD = 18
+private const val PDF_CONTENT_PADDING_RATIO = 0.02f
+private const val PDF_BACKGROUND_EDGE_THRESHOLD = 36
+private const val PDF_PAGE_ASPECT_RATIO = 0.707f
 
 @Composable
 private fun ChapterNavigation(

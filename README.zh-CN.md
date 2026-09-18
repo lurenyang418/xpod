@@ -2,7 +2,7 @@
 
 # XPOD
 
-XPOD 是一款面向 Android 13+ 的本地优先播客与文章阅读器。它将播客 RSS、文章 RSS/Atom、离线播放、原生文章阅读和用户指定的本地音乐目录整合在同一个 Jetpack Compose 应用中。
+XPOD 是一款面向 Android 13+ 的本地优先播客与文章阅读器。它将播客 RSS、文章 RSS/Atom、离线播放、原生文章阅读以及本地音乐和视频库整合在同一个 Jetpack Compose 应用中。媒体库可以使用平台级扫描，也可以通过 Android 存储访问框架选择文件夹进行限制访问。
 
 当前版本：**0.9.8** · Android **13+** · **arm64-v8a** · [Apache-2.0](LICENSE)
 
@@ -37,10 +37,17 @@ XPOD 是一款面向 Android 13+ 的本地优先播客与文章阅读器。它�
 
 ### 本地音乐
 
-- 通过 Android 存储访问框架选择文件夹；XPOD 不申请广泛存储权限。
+- 授予 `READ_MEDIA_AUDIO` 后扫描设备的 MediaStore 音频库，也可以通过 Android 存储访问框架选择文件夹，以限制扫描范围。
 - 递归建立受支持音频文件的索引，原始文件仍保留在用户选择的位置。
 - 按标题、艺术家或专辑搜索，并支持播放全部、队列、随机播放和循环模式。
 - 可识别 AAC、AMR、FLAC、M4A、MP3、OGA、OGG、Opus、WAV 和 WMA 扩展名，实际播放能力取决于设备编解码器。
+
+### 本地视频
+
+- 授予 `READ_MEDIA_VIDEO` 后，可通过 MediaStore 自动扫描设备视频库；也可以通过存储访问框架选择单个文件夹进行限制访问。MediaStore 只覆盖系统已建立索引的视频，其他位置可使用文件夹选择。
+- 递归建立常见视频文件的索引，支持 3GP、AVI、FLV、M4V、MKV、MOV、MP4、MPEG、MPG、TS、WebM 和 WMV 扩展名。
+- 使用 Media3 沉浸式播放器播放视频，支持适应画面、暂停/继续、后退 10 秒、前进 30 秒、倍速和观看进度记忆。
+- 视频播放与播客/音乐后台队列隔离；打开视频时会暂停音频。
 
 ### 本地书籍
 
@@ -66,9 +73,9 @@ XPOD 是一款面向 Android 13+ 的本地优先播客与文章阅读器。它�
 
 ## 本地优先与隐私
 
-XPOD 不要求注册 XPOD 账号。播客、单集、文章、播放记录、队列、偏好设置和本地音乐索引通过 Room 或 DataStore 保存在设备上，应用备份默认关闭。
+XPOD 不要求注册 XPOD 账号。播客、单集、文章、播放记录、队列、偏好设置和本地媒体索引通过 Room 或 DataStore 保存在设备上，应用备份默认关闭。
 
-只有本身需要联网的操作才会访问网络，包括获取 Feed 与配图、串流或下载音频、打开原始网页，以及访问用户主动配置的 Cloud Memos 实例。下载文件保存在应用专属目录，本地音乐权限仅覆盖用户通过系统选择器明确授权的文件夹。
+只有本身需要联网的操作才会访问网络，包括获取 Feed 与配图、串流或下载音频、打开原始网页，以及访问用户主动配置的 Cloud Memos 实例。下载文件保存在应用专属目录。扫描音乐库使用 Android 的 `READ_MEDIA_AUDIO` 权限；自动扫描视频使用 `READ_MEDIA_VIDEO` 查询 Android MediaStore 索引。用户也可以通过系统选择器选择文件夹，以限制视频访问范围。
 
 Cloud Memos 完全可选，也不是 XPOD 本地数据库的通用跨设备同步服务。
 
@@ -129,13 +136,13 @@ Debug 包名为 `tech.lury.xpod.debug`，可以和正式版包名 `tech.lury.xpo
 | 分层 | 职责 | 主要技术 |
 | --- | --- | --- |
 | UI | 自适应 Compose 页面；操作通过 `MainViewModel` 下发；状态通过 `StateFlow` 暴露 | Jetpack Compose、Material 3、Lifecycle |
-| 数据 | Feed 解析、稳定实体、持久化、设置、OPML、本地音乐与 Cloud Memos | Room、DataStore、OkHttp、Android Keystore、SAF |
+| 数据 | Feed 解析、稳定实体、持久化、设置、OPML、本地音乐/视频与 Cloud Memos | Room、DataStore、OkHttp、Android Keystore、SAF、MediaStore |
 | 播放 | 后台播放、状态恢复、队列、随机/循环与媒体库集成 | Media3 `MediaLibraryService` |
 | 下载 | 具有可配置网络要求的应用私有单集下载 | Media3 `DownloadService` 和 `DownloadManager` |
 | 后台任务 | 带有网络约束和重试机制的每日播客、文章刷新 | WorkManager |
 | 依赖注入 | 应用级 Repository、数据库、网络客户端与时钟 | Hilt |
 
-常规数据流为：Compose UI → `MainViewModel` → Repository/Controller → Room、DataStore、Media3、SAF 或明确的外部 I/O。
+常规数据流为：Compose UI → `MainViewModel` → Repository/Controller → Room、DataStore、Media3、SAF、MediaStore 或明确的外部 I/O。
 
 ## 当前边界
 

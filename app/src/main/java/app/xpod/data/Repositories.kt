@@ -91,6 +91,7 @@ enum class AppTab {
   Podcasts,
   Reader,
   Music,
+  Video,
   Memos,
   Books,
   Settings,
@@ -101,6 +102,7 @@ internal val defaultTabOrder =
         AppTab.Podcasts,
         AppTab.Reader,
         AppTab.Music,
+        AppTab.Video,
         AppTab.Memos,
         AppTab.Books,
         AppTab.Settings,
@@ -407,6 +409,7 @@ constructor(@param:ApplicationContext private val context: Context) {
   private val tabOrderKey = stringPreferencesKey("tab_order")
   private val disabledTabsKey = stringPreferencesKey("disabled_tabs")
   private val localMusicTreeUriKey = stringPreferencesKey("local_music_tree_uri")
+  private val localVideoTreeUriKey = stringPreferencesKey("local_video_tree_uri")
   private val localBooksTreeUriKey = stringPreferencesKey("local_books_tree_uri")
   private val musicShuffleEnabledKey = booleanPreferencesKey("music_shuffle_enabled")
   private val musicRepeatModeKey = stringPreferencesKey("music_repeat_mode")
@@ -429,6 +432,8 @@ constructor(@param:ApplicationContext private val context: Context) {
       context.settingsStore.data.map { preferences -> preferences[localMusicTreeUriKey] }
   val localBooksTreeUri: Flow<String?> =
       context.settingsStore.data.map { preferences -> preferences[localBooksTreeUriKey] }
+  val localVideoTreeUri: Flow<String?> =
+      context.settingsStore.data.map { preferences -> preferences[localVideoTreeUriKey] }
   val musicPlaybackSettings: Flow<MusicPlaybackSettings> =
       context.settingsStore.data.map { preferences ->
         MusicPlaybackSettings(
@@ -461,6 +466,15 @@ constructor(@param:ApplicationContext private val context: Context) {
   }
 
   suspend fun localMusicTreeUriValue(): String? = localMusicTreeUri.first()
+
+  suspend fun localVideoTreeUriValue(): String? = localVideoTreeUri.first()
+
+  suspend fun setLocalVideoTreeUri(value: String?) {
+    context.settingsStore.edit { preferences ->
+      if (value == null) preferences.remove(localVideoTreeUriKey)
+      else preferences[localVideoTreeUriKey] = value
+    }
+  }
 
   suspend fun localBooksTreeUriValue(): String? = localBooksTreeUri.first()
 

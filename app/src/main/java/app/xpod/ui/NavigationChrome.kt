@@ -8,6 +8,7 @@ import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -60,6 +61,7 @@ internal fun DestinationIcon(destination: AppRoute) =
       AppRoute.Podcasts -> Icon(Icons.Filled.RssFeed, null)
       AppRoute.Reader -> Icon(Icons.AutoMirrored.Filled.Article, null)
       AppRoute.Music -> Icon(Icons.Filled.MusicNote, null)
+      AppRoute.Video -> Icon(Icons.Filled.VideoLibrary, null)
       AppRoute.Memos -> Icon(Icons.AutoMirrored.Filled.Notes, null)
       AppRoute.Books -> Icon(Icons.AutoMirrored.Filled.MenuBook, null)
       AppRoute.Settings -> Icon(Icons.Filled.Settings, null)
@@ -70,6 +72,7 @@ internal fun destinationLabelResource(destination: AppRoute): Int =
       AppRoute.Podcasts -> R.string.podcasts
       AppRoute.Reader -> R.string.reader
       AppRoute.Music -> R.string.local_music
+      AppRoute.Video -> R.string.local_video
       AppRoute.Memos -> R.string.memos
       AppRoute.Books -> R.string.books
       AppRoute.Settings -> R.string.settings

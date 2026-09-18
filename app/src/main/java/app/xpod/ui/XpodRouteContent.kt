@@ -1,13 +1,14 @@
 package app.xpod.ui
 
 import androidx.compose.runtime.Composable
+import app.xpod.data.AppTab
 import app.xpod.data.ArticleEntity
 import app.xpod.data.ArticleFeedEntity
 import app.xpod.data.CloudMemosConnection
 import app.xpod.data.DownloadState
 import app.xpod.data.EpisodeEntity
-import app.xpod.data.AppTab
 import app.xpod.data.LocalTrackEntity
+import app.xpod.data.LocalVideoEntity
 import app.xpod.data.ReadingPreferences
 import app.xpod.data.ThemeMode
 import app.xpod.playback.NowPlaying
@@ -24,6 +25,7 @@ internal data class XpodRouteUiState(
     val memosConnection: CloudMemosConnection,
     val memosReloadToken: Int,
     val music: MusicUiState,
+    val video: VideoUiState,
     val books: BooksUiState,
     val bulkActionBusy: Boolean,
     val selectedPodcastId: String?,
@@ -44,6 +46,7 @@ internal fun XpodRouteContent(
     viewModel: MainViewModel,
     settingsViewModel: SettingsViewModel,
     musicViewModel: MusicViewModel,
+    videoViewModel: VideoViewModel,
     booksViewModel: BooksViewModel,
     podcastHubActions: PodcastHubActions,
     playEpisode: (EpisodeEntity) -> Unit,
@@ -56,10 +59,14 @@ internal fun XpodRouteContent(
     onShowQueue: () -> Unit,
     onDeleteArticleFeed: (ArticleFeedEntity) -> Unit,
     onChooseMusicFolder: () -> Unit,
+    onStartGlobalMusicScan: () -> Unit,
+    onChooseVideoFolder: () -> Unit,
+    onStartAutomaticVideoScan: () -> Unit,
     onChooseBooksFolder: () -> Unit,
     onSelectDestination: (AppRoute) -> Unit,
     onOpenReleases: () -> Unit,
     playMusicTrack: (LocalTrackEntity) -> Unit,
+    playVideo: (LocalVideoEntity) -> Unit,
     memosComposerActions: MemosComposerActions,
     memosListActions: MemosListActions,
     memosShareActions: MemosShareActions,
@@ -74,6 +81,19 @@ internal fun XpodRouteContent(
   val state = ui.main
   val nowPlaying = ui.nowPlaying
   when {
+    ui.destination == AppRoute.Video && ui.video.playerVideoId != null -> {
+      val video = ui.video.videos.firstOrNull { it.id == ui.video.playerVideoId }
+      VideoPlayerScreen(
+          video = video,
+          player = videoViewModel.player,
+          playerState = ui.video.player,
+          playlist = ui.video.playbackQueue,
+          playlistTitle = ui.video.currentFolderPath,
+          onClose = videoViewModel::closeVideo,
+          onSetSpeed = videoViewModel::setSpeed,
+          onSelectVideo = { videoViewModel.openVideo(it, ui.video.playbackQueue) },
+      )
+    }
     ui.fullPlayer && nowPlaying != null -> {
       val playing = nowPlaying
       FullPlayerScreen(
@@ -120,25 +140,23 @@ internal fun XpodRouteContent(
               },
       )
     }
-    ui.selectedArticle != null ->
-        ArticleReaderScreen(
-            article = ui.selectedArticle,
-            feedTitle = state.articleFeeds.firstOrNull { it.id == ui.selectedArticle.feedId }?.title,
-            setRead = viewModel::setArticleRead,
-            toggleFavorite = viewModel::toggleArticleFavorite,
-            saveToCloudMemos =
-                if (ui.cloudMemos.isConfigured && !ui.cloudMemos.isBusy) {
-                  {
-                    viewModel.saveArticleToCloudMemos(
-                        ui.selectedArticle,
-                        state.articleFeeds.firstOrNull { it.id == ui.selectedArticle.feedId }?.title,
-                    )
-                  }
-                } else {
-                  null
-                },
-            onBack = viewModel::navigateBack,
-        )
+    ui.selectedArticle != null -> {
+      val article = ui.selectedArticle
+      val feedTitle = state.articleFeeds.firstOrNull { it.id == article.feedId }?.title
+      ArticleReaderScreen(
+          article = article,
+          feedTitle = feedTitle,
+          setRead = viewModel::setArticleRead,
+          toggleFavorite = viewModel::toggleArticleFavorite,
+          saveToCloudMemos =
+              if (ui.cloudMemos.isConfigured && !ui.cloudMemos.isBusy) {
+                { viewModel.saveArticleToCloudMemos(article, feedTitle) }
+              } else {
+                null
+              },
+          onBack = viewModel::navigateBack,
+      )
+    }
     ui.selectedBookId != null ->
         BookReaderScreen(
             bookId = ui.selectedBookId,
@@ -178,6 +196,7 @@ internal fun XpodRouteContent(
             state = ui.music,
             nowPlaying = nowPlaying,
             chooseFolder = onChooseMusicFolder,
+            startGlobalScan = onStartGlobalMusicScan,
             refresh = musicViewModel::refreshLocalMusic,
             cancelScan = musicViewModel::cancelLocalMusicScan,
             setQuery = musicViewModel::setMusicQuery,
@@ -186,6 +205,17 @@ internal fun XpodRouteContent(
             togglePlayback = togglePlayback,
             playNext = musicViewModel::playMusicNext,
             addToQueue = musicViewModel::addMusicToQueue,
+        )
+    ui.destination == AppRoute.Video ->
+        VideoScreen(
+            state = ui.video,
+            chooseFolder = onChooseVideoFolder,
+            startAutomaticScan = onStartAutomaticVideoScan,
+            refresh = videoViewModel::refresh,
+            cancelScan = videoViewModel::cancelScan,
+            setQuery = videoViewModel::setQuery,
+            openFolder = videoViewModel::openFolder,
+            play = playVideo,
         )
     ui.destination == AppRoute.Books ->
         BooksScreen(

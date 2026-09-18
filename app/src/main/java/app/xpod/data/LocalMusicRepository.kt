@@ -1,13 +1,18 @@
 package app.xpod.data
 
+import android.Manifest
+import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.database.Cursor
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.CancellationSignal
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.room.withTransaction
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -34,6 +39,12 @@ constructor(
 ) {
   val tracks: Flow<List<LocalTrackEntity>> = database.localTracks().observeAll()
   val treeUri: Flow<String?> = settings.localMusicTreeUri
+
+  fun hasAudioPermission(): Boolean =
+      ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_AUDIO) ==
+          PackageManager.PERMISSION_GRANTED
+
+  suspend fun sourceValue(): String? = settings.localMusicTreeUriValue()
 
   suspend fun selectTree(uri: Uri): Int =
       withContext(Dispatchers.IO) {
@@ -78,9 +89,37 @@ constructor(
 
   suspend fun refresh(): Int =
       withContext(Dispatchers.IO) {
-        val tree = settings.localMusicTreeUriValue() ?: error("No local music folder selected")
-        val tracks = scan(tree.toUri())
+        val source = settings.localMusicTreeUriValue() ?: error("No local music source selected")
+        val tracks =
+            if (source == LOCAL_MUSIC_MEDIA_SOURCE) {
+              check(hasAudioPermission()) { "Audio permission is not granted" }
+              scanMediaStore()
+            } else {
+              scan(source.toUri())
+            }
         replaceTracks(tracks)
+        tracks.size
+      }
+
+  suspend fun enableGlobalScan(): Int =
+      withContext(Dispatchers.IO) {
+        check(hasAudioPermission()) { "Audio permission is not granted" }
+        val previousSource = settings.localMusicTreeUriValue()
+        val tracks = scanMediaStore()
+        try {
+          settings.setLocalMusicTreeUri(LOCAL_MUSIC_MEDIA_SOURCE)
+          replaceTracks(tracks)
+        } catch (error: Throwable) {
+          try {
+            withContext(NonCancellable) { settings.setLocalMusicTreeUri(previousSource) }
+          } catch (rollbackError: Throwable) {
+            error.addSuppressed(rollbackError)
+          }
+          throw error
+        }
+        if (previousSource != null && previousSource != LOCAL_MUSIC_MEDIA_SOURCE) {
+          releaseTreePermission(previousSource.toUri())
+        }
         tracks.size
       }
 
@@ -103,6 +142,59 @@ constructor(
       if (tracks.isNotEmpty()) database.localTracks().upsertAll(tracks)
     }
   }
+
+  private suspend fun scanMediaStore(): List<LocalTrackEntity> =
+      withContext(Dispatchers.IO) {
+        val contentUri = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        val cursor =
+            context.contentResolver.query(
+                contentUri,
+                MEDIA_STORE_PROJECTION,
+                null,
+                null,
+                "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC",
+            ) ?: error("Unable to query MediaStore audio")
+        cursor
+            .use { resultCursor ->
+              val idIndex = resultCursor.getColumnIndex(MediaStore.Audio.Media._ID)
+              val displayNameIndex =
+                  resultCursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
+              val titleIndex = resultCursor.getColumnIndex(MediaStore.Audio.Media.TITLE)
+              val artistIndex = resultCursor.getColumnIndex(MediaStore.Audio.Media.ARTIST)
+              val albumIndex = resultCursor.getColumnIndex(MediaStore.Audio.Media.ALBUM)
+              val durationIndex = resultCursor.getColumnIndex(MediaStore.Audio.Media.DURATION)
+              val modifiedIndex = resultCursor.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
+              val relativePathIndex =
+                  resultCursor.getColumnIndex(MediaStore.MediaColumns.RELATIVE_PATH)
+              val tracks = mutableListOf<LocalTrackEntity>()
+              while (resultCursor.moveToNext()) {
+                currentCoroutineContext().ensureActive()
+                if (idIndex < 0 || resultCursor.isNull(idIndex)) continue
+                val mediaId = resultCursor.getLong(idIndex)
+                val displayName = resultCursor.stringOrEmpty(displayNameIndex)
+                val mediaUri = ContentUris.withAppendedId(contentUri, mediaId)
+                tracks +=
+                    LocalTrackEntity(
+                        id = mediaStoreTrackId(MediaStore.VOLUME_EXTERNAL, mediaId),
+                        documentUri = mediaUri.toString(),
+                        treeUri = LOCAL_MUSIC_MEDIA_SOURCE,
+                        title =
+                            resultCursor
+                                .stringOrEmpty(titleIndex)
+                                .trim()
+                                .takeUnless { it.isBlank() } ?: titleFrom(displayName),
+                        artist = resultCursor.stringOrEmpty(artistIndex).trim(),
+                        album = resultCursor.stringOrEmpty(albumIndex).trim(),
+                        durationMs = resultCursor.longOrZero(durationIndex),
+                        modifiedEpochMs = resultCursor.longOrZero(modifiedIndex) * 1_000L,
+                        relativePath =
+                            resultCursor.stringOrEmpty(relativePathIndex).trim('/').trim(),
+                    )
+              }
+              tracks.distinctBy(LocalTrackEntity::id)
+            }
+            .sortedBy { it.title.lowercase(Locale.ROOT) }
+      }
 
   private data class PendingDirectory(val documentId: String, val relativePath: String)
 
@@ -130,7 +222,7 @@ constructor(
       tracks: MutableList<LocalTrackEntity>,
   ) {
     val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parent.documentId)
-    queryChildren(childrenUri)?.use { cursor ->
+    queryChildren(childrenUri).use { cursor ->
       val idIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
       val nameIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
       val mimeIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
@@ -166,7 +258,7 @@ constructor(
     }
   }
 
-  private suspend fun queryChildren(childrenUri: Uri): Cursor? =
+  private suspend fun queryChildren(childrenUri: Uri): Cursor =
       suspendCancellableCoroutine { continuation ->
         val cancellationSignal = CancellationSignal()
         continuation.invokeOnCancellation { cancellationSignal.cancel() }
@@ -178,7 +270,9 @@ constructor(
                   null,
                   cancellationSignal,
               )
-          continuation.resume(cursor) { _, rejectedCursor, _ -> rejectedCursor?.close() }
+          continuation.resume(requireMusicChildrenCursor(cursor, childrenUri.toString())) { _, rejectedCursor, _ ->
+            rejectedCursor.close()
+          }
         } catch (error: Throwable) {
           continuation.resumeWithException(error)
         }
@@ -232,8 +326,28 @@ constructor(
             DocumentsContract.Document.COLUMN_MIME_TYPE,
             DocumentsContract.Document.COLUMN_LAST_MODIFIED,
         )
+    val MEDIA_STORE_PROJECTION =
+        arrayOf(
+            MediaStore.Audio.Media._ID,
+            MediaStore.MediaColumns.DISPLAY_NAME,
+            MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.ALBUM,
+            MediaStore.Audio.Media.DURATION,
+            MediaStore.MediaColumns.DATE_MODIFIED,
+            MediaStore.MediaColumns.RELATIVE_PATH,
+        )
   }
 }
+
+internal fun requireMusicChildrenCursor(cursor: Cursor?, childrenUri: String): Cursor =
+    cursor ?: error("Unable to query SAF music children: $childrenUri")
+
+private fun Cursor.stringOrEmpty(index: Int): String =
+    if (index < 0 || isNull(index)) "" else getString(index).orEmpty()
+
+private fun Cursor.longOrZero(index: Int): Long =
+    if (index < 0 || isNull(index)) 0L else getLong(index).coerceAtLeast(0L)
 
 internal fun isSupportedAudioDocument(mimeType: String, displayName: String): Boolean {
   if (mimeType.startsWith("audio/", ignoreCase = true)) return true
@@ -244,8 +358,13 @@ internal fun isSupportedAudioDocument(mimeType: String, displayName: String): Bo
 internal fun localTrackId(authority: String, documentId: String): String =
     LOCAL_TRACK_ID_PREFIX + FeedId.from("$authority|$documentId")
 
+internal fun mediaStoreTrackId(volume: String, mediaId: Long): String =
+    localTrackId("media.$volume", mediaId.toString())
+
 internal fun titleFrom(displayName: String): String =
     displayName.substringBeforeLast('.', displayName).trim().ifBlank { "Untitled track" }
 
 internal fun appendRelativePath(parent: String, child: String): String =
     listOf(parent.trim('/'), child.trim('/')).filter(String::isNotBlank).joinToString("/")
+
+const val LOCAL_MUSIC_MEDIA_SOURCE = "media-store://shared-audio"

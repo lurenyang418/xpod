@@ -1,13 +1,14 @@
 package app.xpod.ui
 
 import android.Manifest
+import android.app.PictureInPictureParams
 import android.content.pm.PackageManager
+import android.util.Rational
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
@@ -17,6 +18,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -27,7 +29,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
@@ -43,6 +44,7 @@ import app.xpod.data.ArticleFeedEntity
 import app.xpod.data.CloudMemoVisibility
 import app.xpod.data.EpisodeEntity
 import app.xpod.data.LocalTrackEntity
+import app.xpod.data.LocalVideoEntity
 import app.xpod.data.PlaybackMediaType
 import app.xpod.data.PodcastEntity
 import app.xpod.data.ThemeMode
@@ -92,7 +94,7 @@ fun XpodApp(viewModel: MainViewModel = hiltViewModel()) {
         dynamic -> dynamicLightColorScheme(context)
         dark -> darkColorScheme()
         else -> lightColorScheme()
-  }
+      }
   MaterialTheme(colorScheme = scheme) {
     XpodHome(
         viewModel,
@@ -115,6 +117,7 @@ private fun XpodHome(
     requestNotificationPermission: () -> Unit,
 ) {
   val context = LocalContext.current
+  val activity = LocalActivity.current
   val resources = LocalResources.current
   val state by viewModel.state.collectAsStateWithLifecycle()
   val articleSummaries by viewModel.articleSummaries.collectAsStateWithLifecycle()
@@ -143,6 +146,9 @@ private fun XpodHome(
   val musicViewModel: MusicViewModel = hiltViewModel()
   val music by musicViewModel.musicState.collectAsStateWithLifecycle()
   val musicStatus by musicViewModel.status.collectAsStateWithLifecycle()
+  val videoViewModel: VideoViewModel = hiltViewModel()
+  val video by videoViewModel.state.collectAsStateWithLifecycle()
+  val videoStatus by videoViewModel.status.collectAsStateWithLifecycle()
   val booksViewModel: BooksViewModel = hiltViewModel()
   val books by booksViewModel.state.collectAsStateWithLifecycle()
   val booksStatus by booksViewModel.status.collectAsStateWithLifecycle()
@@ -167,12 +173,61 @@ private fun XpodHome(
   val selectedArticleId = navigation.selectedArticleId
   val selectedBookId = navigation.selectedBookId
   val fullPlayer = navigation.fullPlayer
+  val pictureInPictureVideo = video.videos.firstOrNull { it.id == video.playerVideoId }
+  val pictureInPictureEnabled = video.playerVideoId != null && video.player.isPlaying
+  val pictureInPictureWidth = pictureInPictureVideo?.width ?: 16
+  val pictureInPictureHeight = pictureInPictureVideo?.height ?: 9
+  DisposableEffect(
+      activity,
+      pictureInPictureEnabled,
+      pictureInPictureWidth,
+      pictureInPictureHeight,
+  ) {
+    activity?.setPictureInPictureParams(
+        buildPictureInPictureParams(
+            autoEnter = pictureInPictureEnabled,
+            width = pictureInPictureWidth,
+            height = pictureInPictureHeight,
+        )
+    )
+    onDispose {
+      activity?.setPictureInPictureParams(
+          buildPictureInPictureParams(autoEnter = false, width = 16, height = 9)
+      )
+    }
+  }
   val queue by viewModel.queue.collectAsStateWithLifecycle()
   val musicPlaybackSettings by viewModel.musicPlaybackSettings.collectAsStateWithLifecycle()
   val musicFolderPicker =
       rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri?.let(musicViewModel::selectMusicFolder)
       }
+  val musicAudioPermissionLauncher =
+      rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        musicViewModel.onAudioPermissionResult(granted)
+      }
+  val requestMusicAudioPermission = {
+    musicAudioPermissionLauncher.launch(Manifest.permission.READ_MEDIA_AUDIO)
+  }
+  val videoFolderPicker =
+      rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri?.let(videoViewModel::selectVideoFolder)
+      }
+  val videoPermissionLauncher =
+      rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        videoViewModel.onVideoPermissionResult(granted)
+      }
+  val requestVideoPermission = {
+    videoPermissionLauncher.launch(Manifest.permission.READ_MEDIA_VIDEO)
+  }
+  val startAutomaticVideoScan = {
+    if (video.hasVideoPermission) videoViewModel.startAutomaticScan()
+    else requestVideoPermission()
+  }
+  val startGlobalMusicScan = {
+    if (music.hasAudioPermission) musicViewModel.startGlobalScan()
+    else requestMusicAudioPermission()
+  }
   val booksFolderPicker =
       rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri?.let(booksViewModel::selectBookFolder)
@@ -330,6 +385,13 @@ private fun XpodHome(
         }
         play
       }
+  val playVideo =
+      remember(videoViewModel, video.playbackVideos) {
+        val play: (LocalVideoEntity) -> Unit = { videoItem ->
+          videoViewModel.openVideo(videoItem.id, video.playbackVideos)
+        }
+        play
+      }
   val playQueueItem =
       remember(viewModel, requestNotificationPermission) {
         val play: (String) -> Unit = { mediaId ->
@@ -414,6 +476,37 @@ private fun XpodHome(
       musicViewModel.dismissStatus()
     }
   }
+  LaunchedEffect(videoStatus) {
+    videoStatus?.let {
+      snackbar.showXpodSnackbar(it)
+      videoViewModel.dismissStatus()
+    }
+  }
+  LaunchedEffect(destination) {
+    when (destination) {
+      AppRoute.Music -> {
+        musicViewModel.onMusicScreenVisible()
+        if (
+            !music.hasAudioPermission &&
+                (music.selectedTreeUri == null || music.isGlobalSource) &&
+                musicViewModel.shouldRequestAutomaticAudioPermission()
+        ) {
+          requestMusicAudioPermission()
+        }
+      }
+      AppRoute.Video -> {
+        videoViewModel.onVideoScreenVisible()
+        if (
+            !video.hasVideoPermission &&
+                (video.selectedTreeUri == null || video.isGlobalSource) &&
+                videoViewModel.shouldRequestAutomaticVideoPermission()
+        ) {
+          requestVideoPermission()
+        }
+      }
+      else -> Unit
+    }
+  }
   LaunchedEffect(booksStatus) {
     booksStatus?.let {
       snackbar.showXpodSnackbar(it)
@@ -473,10 +566,13 @@ private fun XpodHome(
       }
     }
   }
-  val back: () -> Unit = viewModel::navigateBack
+  val back: () -> Unit = {
+    if (video.playerVideoId != null) videoViewModel.closeVideo() else viewModel.navigateBack()
+  }
   BackHandler(
       enabled =
           fullPlayer ||
+              video.playerVideoId != null ||
               selectedEpisode != null ||
               selectedArticleId != null ||
               selectedBookId != null ||
@@ -485,6 +581,7 @@ private fun XpodHome(
   )
   val contentRouteId: String =
       when {
+        video.playerVideoId != null -> "video-player"
         fullPlayer && nowPlaying != null -> "player"
         selectedEpisode != null -> "episode"
         selectedArticleId != null -> "article"
@@ -507,6 +604,7 @@ private fun XpodHome(
                 memosConnection = memosConnection,
                 memosReloadToken = memosReloadToken,
                 music = music,
+                video = video,
                 books = books,
                 bulkActionBusy = bulkActions.isBusy,
                 selectedPodcastId = selectedPodcastId,
@@ -522,6 +620,7 @@ private fun XpodHome(
         viewModel = viewModel,
         settingsViewModel = settingsViewModel,
         musicViewModel = musicViewModel,
+        videoViewModel = videoViewModel,
         booksViewModel = booksViewModel,
         podcastHubActions = podcastHubActions,
         playEpisode = playEpisode,
@@ -534,6 +633,9 @@ private fun XpodHome(
         onShowQueue = { showQueue = true },
         onDeleteArticleFeed = { articleFeedToDelete = it },
         onChooseMusicFolder = { musicFolderPicker.launch(null) },
+        onStartGlobalMusicScan = startGlobalMusicScan,
+        onChooseVideoFolder = { videoFolderPicker.launch(null) },
+        onStartAutomaticVideoScan = startAutomaticVideoScan,
         onChooseBooksFolder = { booksFolderPicker.launch(null) },
         onSelectDestination = selectDestination,
         onOpenReleases = {
@@ -547,6 +649,7 @@ private fun XpodHome(
           }
         },
         playMusicTrack = playMusicTrack,
+        playVideo = playVideo,
         memosComposerActions = memosComposerActions,
         memosListActions = memosListActions,
         memosShareActions = memosShareActions,
@@ -562,18 +665,25 @@ private fun XpodHome(
   XpodHomeScaffold(
       snackbar = snackbar,
       showTopBar =
-          fullPlayer ||
-              selectedEpisode != null ||
-              !wide && destination == AppRoute.Podcasts && selectedPodcastId != null,
+          video.playerVideoId == null &&
+              (fullPlayer ||
+                  selectedEpisode != null ||
+                  (!wide && destination == AppRoute.Podcasts && selectedPodcastId != null)),
       fullPlayer = fullPlayer,
       selectedEpisode = selectedEpisode,
       selectedPodcastId = selectedPodcastId,
-      selectedPodcastUnplayedCount = selectedPodcastId?.let { state.unplayedEpisodeCounts[it] } ?: 0,
+      selectedPodcastUnplayedCount =
+          selectedPodcastId?.let { state.unplayedEpisodeCounts[it] } ?: 0,
       bulkActionBusy = bulkActions.isBusy,
       onRequestPodcastMarkAllPlayed = viewModel::requestPodcastMarkAllPlayed,
       onBack = back,
       onShowQueue = { showQueue = true },
-      showBottomBar = !wide && !fullPlayer && selectedArticleId == null && selectedBookId == null,
+      showBottomBar =
+          !wide &&
+              !fullPlayer &&
+              video.playerVideoId == null &&
+              selectedArticleId == null &&
+              selectedBookId == null,
       summary = miniSummary,
       destination = destination,
       routes = visibleRoutes,
@@ -583,7 +693,13 @@ private fun XpodHome(
       onNext = skipToNext,
       onOpenPlayer = openFullPlayer,
       onShowSpeedPicker = showSpeedPickerAction,
-      showNavigationRail = wide && selectedArticleId == null && selectedBookId == null && !fullPlayer,
+      showNavigationRail =
+          wide &&
+              selectedArticleId == null &&
+              selectedBookId == null &&
+              !fullPlayer &&
+              video.playerVideoId == null,
+      immersiveContent = video.playerVideoId != null,
       saveableStateHolder = saveableStateHolder,
       contentRouteId = contentRouteId,
       content = content,
@@ -656,4 +772,17 @@ private fun XpodHome(
       onConfirm = viewModel::confirmBulkMark,
       onDismiss = viewModel::dismissBulkMarkRequest,
   )
+}
+
+internal fun buildPictureInPictureParams(autoEnter: Boolean, width: Int, height: Int) =
+    PictureInPictureParams.Builder()
+        .setAspectRatio(safePictureInPictureRatio(width, height))
+        .setAutoEnterEnabled(autoEnter)
+        .build()
+
+private fun safePictureInPictureRatio(width: Int, height: Int): Rational {
+  val safeWidth = width.takeIf { it > 0 } ?: 16
+  val safeHeight = height.takeIf { it > 0 } ?: 9
+  val ratio = safeWidth.toFloat() / safeHeight.toFloat()
+  return if (ratio in 0.42f..2.39f) Rational(safeWidth, safeHeight) else Rational(16, 9)
 }

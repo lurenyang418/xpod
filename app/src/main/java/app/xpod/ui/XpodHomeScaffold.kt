@@ -2,6 +2,7 @@ package app.xpod.ui
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -13,8 +14,10 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,18 +33,16 @@ import androidx.compose.material3.SnackbarVisuals
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.SaveableStateHolder
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.runtime.saveable.SaveableStateHolder
 import app.xpod.R
 import app.xpod.data.EpisodeEntity
 
@@ -68,6 +69,7 @@ internal fun XpodHomeScaffold(
     onOpenPlayer: () -> Unit,
     onShowSpeedPicker: () -> Unit,
     showNavigationRail: Boolean,
+    immersiveContent: Boolean,
     saveableStateHolder: SaveableStateHolder,
     contentRouteId: String,
     content: @Composable () -> Unit,
@@ -102,7 +104,7 @@ internal fun XpodHomeScaffold(
       },
       snackbarHost = { XpodSnackbarHost(snackbar) },
   ) { padding ->
-    Box(Modifier.fillMaxSize().padding(padding)) {
+    Box(if (immersiveContent) Modifier.fillMaxSize() else Modifier.fillMaxSize().padding(padding)) {
       Row(Modifier.fillMaxSize()) {
         if (showNavigationRail) {
           NavigationRail {
@@ -118,7 +120,9 @@ internal fun XpodHomeScaffold(
         }
         // SaveableStateProvider (unlike a bare key()) restores each route's rememberSaveable
         // state and scroll positions when the user navigates back to it.
-        saveableStateHolder.SaveableStateProvider(contentRouteId) { content() }
+        Box(Modifier.weight(1f).fillMaxHeight()) {
+          saveableStateHolder.SaveableStateProvider(contentRouteId) { content() }
+        }
       }
     }
   }

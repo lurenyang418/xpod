@@ -2,7 +2,7 @@
 
 # XPOD
 
-XPOD is a local-first podcast and article reader for Android 13+. It brings podcast RSS, article RSS/Atom, offline playback, a native article reader, and a user-selected local music library into one Jetpack Compose app.
+XPOD is a local-first podcast and article reader for Android 13+. It brings podcast RSS, article RSS/Atom, offline playback, a native article reader, and local music and video libraries into one Jetpack Compose app. Libraries can use platform-wide scanning or a user-selected folder through Android's Storage Access Framework.
 
 Current version: **0.9.8** · Android **13+** · **arm64-v8a** · [Apache-2.0](LICENSE)
 
@@ -37,10 +37,17 @@ More captured screens and the reproducible showcase-data workflow are available 
 
 ### Local music
 
-- Select a folder with Android's Storage Access Framework; XPOD does not request broad storage access.
+- Scan the device's MediaStore audio library after granting `READ_MEDIA_AUDIO`, or select a folder with Android's Storage Access Framework for limited access.
 - Recursively index supported audio documents while keeping the original files in place.
 - Search by title, artist, or album and use play-all, queue, shuffle, and repeat controls.
 - Recognized extensions include AAC, AMR, FLAC, M4A, MP3, OGA, OGG, Opus, WAV, and WMA, subject to device codec support.
+
+### Local video
+
+- Scan the device video library automatically through MediaStore after granting `READ_MEDIA_VIDEO`, or select a folder with the Storage Access Framework for limited access. MediaStore covers indexed device videos; use folder selection for locations outside that library.
+- Recursively index common video files including 3GP, AVI, FLV, M4V, MKV, MOV, MP4, MPEG, MPG, TS, WebM, and WMV.
+- Play videos in an immersive Media3 player with fit-to-view rendering, pause/resume, 10-second rewind, 30-second forward, playback speed, and saved viewing progress.
+- Video playback is separate from the podcast/music background queue and pauses audio playback while a video is open.
 
 ### Books
 
@@ -66,9 +73,9 @@ More captured screens and the reproducible showcase-data workflow are available 
 
 ## Local-first and privacy
 
-XPOD does not require an XPOD account. Podcast, episode, article, playback, queue, preference, and local-music index data are stored on the device with Room or DataStore. App backup is disabled.
+XPOD does not require an XPOD account. Podcast, episode, article, playback, queue, preference, and local media index data are stored on the device with Room or DataStore. App backup is disabled.
 
-Network access is used only for actions that inherently need it: retrieving feeds and artwork, streaming or downloading media, opening original pages, and communicating with a Cloud Memos instance configured by the user. Downloads stay in app-specific storage, and local music access is limited to folders explicitly selected through the system picker.
+Network access is used only for actions that inherently need it: retrieving feeds and artwork, streaming or downloading media, opening original pages, and communicating with a Cloud Memos instance configured by the user. Downloads stay in app-specific storage. Music library scanning uses Android's `READ_MEDIA_AUDIO` permission, and automatic video scanning uses `READ_MEDIA_VIDEO` to query Android's MediaStore index. Users can instead choose a folder through the system picker for limited video access.
 
 Cloud Memos is optional and is not a general cross-device sync service for XPOD's local database.
 
@@ -129,13 +136,13 @@ With a connected device or emulator:
 | Layer | Responsibility | Main technology |
 | --- | --- | --- |
 | UI | Adaptive Compose screens; actions flow through `MainViewModel`; state is exposed with `StateFlow` | Jetpack Compose, Material 3, Lifecycle |
-| Data | Feed parsing, stable entities, persistence, settings, OPML, local music, and Cloud Memos | Room, DataStore, OkHttp, Android Keystore, SAF |
+| Data | Feed parsing, stable entities, persistence, settings, OPML, local music/video, and Cloud Memos | Room, DataStore, OkHttp, Android Keystore, SAF, MediaStore |
 | Playback | Background audio, playback restoration, queues, shuffle/repeat, and media-library integration | Media3 `MediaLibraryService` |
 | Downloads | App-private episode downloads with configurable network requirements | Media3 `DownloadService` and `DownloadManager` |
 | Background work | Daily podcast and article refresh with network constraints and retry behavior | WorkManager |
 | Dependency injection | Application-wide repositories, database, network client, and clock | Hilt |
 
-The normal data path is: Compose UI → `MainViewModel` → repositories/controllers → Room, DataStore, Media3, SAF, or explicit external I/O.
+The normal data path is: Compose UI → `MainViewModel` → repositories/controllers → Room, DataStore, Media3, SAF, MediaStore, or explicit external I/O.
 
 ## Project boundaries
 

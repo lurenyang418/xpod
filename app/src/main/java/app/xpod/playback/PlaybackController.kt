@@ -489,6 +489,10 @@ constructor(
     }
   }
 
+  suspend fun pause() = playbackMutationMutex.withLock {
+    controller().pause()
+  }
+
   suspend fun seekTo(positionMs: Long) = playbackMutationMutex.withLock {
     controller().let { player ->
       player.seekTo(positionMs)
