@@ -1,5 +1,6 @@
 package app.xpod.ui.notes
 
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.BasicTextField
@@ -45,8 +47,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
@@ -101,6 +106,16 @@ internal fun NoteEditorScreen(
   val selectedCustomTheme =
       editor.customTheme ?: customThemes.firstOrNull { it.id == editor.customThemeId }
   val resolvedThemeSpec = resolveMarkdownThemeSpec(editor.theme, selectedCustomTheme, appTheme)
+  var contentEditorFocused by remember(editor.id) { mutableStateOf(false) }
+  val configuration = LocalConfiguration.current
+  val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+  val compactLandscapeWritingMode =
+      shouldUseCompactLandscapeWritingMode(
+          isLandscape = isLandscape,
+          isCompactViewport =
+              LocalWindowInfo.current.containerDpSize.height < LANDSCAPE_COMPACT_VIEWPORT_HEIGHT,
+          contentEditorFocused = contentEditorFocused,
+      )
   var pendingThemeExportId by remember { mutableStateOf<String?>(null) }
   val syntaxColors =
       MarkdownSyntaxColors(
@@ -175,163 +190,166 @@ internal fun NoteEditorScreen(
   }
 
   Scaffold(
+      modifier = Modifier.fillMaxSize(),
       topBar = {
-        TopAppBar(
-            navigationIcon = {
-              IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back))
-              }
-            },
-            title = {
-              Text(editor.title.ifBlank { stringResource(R.string.notes) }, maxLines = 1)
-            },
-            actions = {
-              Surface(
-                  shape = MaterialTheme.shapes.medium,
-                  color = MaterialTheme.colorScheme.surfaceVariant,
-              ) {
-                androidx.compose.foundation.layout.Row(modifier = Modifier.padding(2.dp)) {
-                  NoteViewModeButton(
-                      selected = !showPreview,
-                      icon = Icons.Filled.Edit,
-                      contentDescription = stringResource(R.string.note_edit),
-                      onClick = { showPreview = false },
-                      modifier = Modifier.size(40.dp),
-                  )
-                  NoteViewModeButton(
-                      selected = showPreview,
-                      icon = Icons.Filled.Visibility,
-                      contentDescription = stringResource(R.string.note_preview),
-                      onClick = { showPreview = true },
-                      modifier = Modifier.size(40.dp),
+        if (!compactLandscapeWritingMode) {
+          TopAppBar(
+              navigationIcon = {
+                IconButton(onClick = onBack) {
+                  Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back))
+                }
+              },
+              title = {
+                Text(editor.title.ifBlank { stringResource(R.string.notes) }, maxLines = 1)
+              },
+              actions = {
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                ) {
+                  androidx.compose.foundation.layout.Row(modifier = Modifier.padding(2.dp)) {
+                    NoteViewModeButton(
+                        selected = !showPreview,
+                        icon = Icons.Filled.Edit,
+                        contentDescription = stringResource(R.string.note_edit),
+                        onClick = { showPreview = false },
+                        modifier = Modifier.size(40.dp),
+                    )
+                    NoteViewModeButton(
+                        selected = showPreview,
+                        icon = Icons.Filled.Visibility,
+                        contentDescription = stringResource(R.string.note_preview),
+                        onClick = { showPreview = true },
+                        modifier = Modifier.size(40.dp),
+                    )
+                  }
+                }
+                if (editor.isSaving) {
+                  Text(
+                      text = stringResource(R.string.note_saving),
+                      style = MaterialTheme.typography.labelSmall,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                      modifier = Modifier.padding(horizontal = 4.dp),
                   )
                 }
-              }
-              if (editor.isSaving) {
-                Text(
-                    text = stringResource(R.string.note_saving),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 4.dp),
-                )
-              }
-              IconButton(onClick = { themeMenuExpanded = true }) {
-                Icon(
-                    Icons.Filled.Palette,
-                    selectedCustomTheme?.name ?: stringResource(R.string.note_theme),
-                )
-              }
-              DropdownMenu(
-                  expanded = themeMenuExpanded,
-                  onDismissRequest = { themeMenuExpanded = false },
-              ) {
-                MarkdownThemeMode.entries
-                    .filterNot { it == MarkdownThemeMode.Custom }
-                    .forEach { mode ->
-                      DropdownMenuItem(
-                          text = { Text(stringResource(markdownThemeLabel(mode))) },
-                          onClick = {
-                            themeMenuExpanded = false
-                            onThemeChanged(mode)
-                          },
-                      )
-                    }
-                if (customThemes.isNotEmpty()) HorizontalDivider()
-                customThemes.forEach { customTheme ->
-                  DropdownMenuItem(
-                      text = { Text(customTheme.name) },
-                      trailingIcon = {
-                        if (customTheme.id == editor.customThemeId) {
-                          Icon(Icons.Filled.Check, contentDescription = null)
-                        }
-                      },
-                      onClick = {
-                        themeMenuExpanded = false
-                        onCustomThemeSelected(customTheme.id)
-                      },
+                IconButton(onClick = { themeMenuExpanded = true }) {
+                  Icon(
+                      Icons.Filled.Palette,
+                      selectedCustomTheme?.name ?: stringResource(R.string.note_theme),
                   )
                 }
-                HorizontalDivider()
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.markdown_theme_import_json)) },
-                    onClick = {
-                      themeMenuExpanded = false
-                      themeImportLauncher.launch(arrayOf("application/json", "text/json"))
-                    },
-                )
-                selectedCustomTheme?.let { customTheme ->
+                DropdownMenu(
+                    expanded = themeMenuExpanded,
+                    onDismissRequest = { themeMenuExpanded = false },
+                ) {
+                  MarkdownThemeMode.entries
+                      .filterNot { it == MarkdownThemeMode.Custom }
+                      .forEach { mode ->
+                        DropdownMenuItem(
+                            text = { Text(stringResource(markdownThemeLabel(mode))) },
+                            onClick = {
+                              themeMenuExpanded = false
+                              onThemeChanged(mode)
+                            },
+                        )
+                      }
+                  if (customThemes.isNotEmpty()) HorizontalDivider()
+                  customThemes.forEach { customTheme ->
+                    DropdownMenuItem(
+                        text = { Text(customTheme.name) },
+                        trailingIcon = {
+                          if (customTheme.id == editor.customThemeId) {
+                            Icon(Icons.Filled.Check, contentDescription = null)
+                          }
+                        },
+                        onClick = {
+                          themeMenuExpanded = false
+                          onCustomThemeSelected(customTheme.id)
+                        },
+                    )
+                  }
+                  HorizontalDivider()
                   DropdownMenuItem(
-                      text = { Text(stringResource(R.string.markdown_theme_export_json)) },
+                      text = { Text(stringResource(R.string.markdown_theme_import_json)) },
                       onClick = {
                         themeMenuExpanded = false
-                        pendingThemeExportId = customTheme.id
-                        themeExportLauncher.launch(
-                            exportBaseName(customTheme.name, "xpod-theme.json")
+                        themeImportLauncher.launch(arrayOf("application/json", "text/json"))
+                      },
+                  )
+                  selectedCustomTheme?.let { customTheme ->
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.markdown_theme_export_json)) },
+                        onClick = {
+                          themeMenuExpanded = false
+                          pendingThemeExportId = customTheme.id
+                          themeExportLauncher.launch(
+                              exportBaseName(customTheme.name, "xpod-theme.json")
+                          )
+                        },
+                    )
+                  }
+                }
+                IconButton(onClick = { exportMenuExpanded = true }) {
+                  Icon(Icons.Filled.MoreVert, stringResource(R.string.note_actions))
+                }
+                DropdownMenu(
+                    expanded = exportMenuExpanded,
+                    onDismissRequest = { exportMenuExpanded = false },
+                ) {
+                  DropdownMenuItem(
+                      text = {
+                        Text(
+                            stringResource(
+                                if (cloudMemosBusy) R.string.cloud_memos_saving
+                                else R.string.save_to_cloud_memos
+                            )
                         )
                       },
+                      enabled = !cloudMemosBusy,
+                      onClick = {
+                        exportMenuExpanded = false
+                        onSaveToCloudMemos()
+                      },
+                  )
+                  DropdownMenuItem(
+                      text = { Text(stringResource(R.string.export_markdown)) },
+                      onClick = {
+                        exportMenuExpanded = false
+                        markdownLauncher.launch(exportBaseName(editor.title, "md"))
+                      },
+                  )
+                  DropdownMenuItem(
+                      text = { Text(stringResource(R.string.share_note_text)) },
+                      onClick = {
+                        exportMenuExpanded = false
+                        onShareMarkdownText()
+                      },
+                  )
+                  DropdownMenuItem(
+                      text = { Text(stringResource(R.string.share_note_file)) },
+                      onClick = {
+                        exportMenuExpanded = false
+                        onShareMarkdownFile()
+                      },
+                  )
+                  DropdownMenuItem(
+                      text = { Text(stringResource(R.string.export_html)) },
+                      onClick = {
+                        exportMenuExpanded = false
+                        htmlLauncher.launch(exportBaseName(editor.title, "html"))
+                      },
+                  )
+                  DropdownMenuItem(
+                      text = { Text(stringResource(R.string.export_pdf)) },
+                      onClick = {
+                        exportMenuExpanded = false
+                        pdfLauncher.launch(exportBaseName(editor.title, "pdf"))
+                      },
                   )
                 }
-              }
-              IconButton(onClick = { exportMenuExpanded = true }) {
-                Icon(Icons.Filled.MoreVert, stringResource(R.string.note_actions))
-              }
-              DropdownMenu(
-                  expanded = exportMenuExpanded,
-                  onDismissRequest = { exportMenuExpanded = false },
-              ) {
-                DropdownMenuItem(
-                    text = {
-                      Text(
-                          stringResource(
-                              if (cloudMemosBusy) R.string.cloud_memos_saving
-                              else R.string.save_to_cloud_memos
-                          )
-                      )
-                    },
-                    enabled = !cloudMemosBusy,
-                    onClick = {
-                      exportMenuExpanded = false
-                      onSaveToCloudMemos()
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.export_markdown)) },
-                    onClick = {
-                      exportMenuExpanded = false
-                      markdownLauncher.launch(exportBaseName(editor.title, "md"))
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.share_note_text)) },
-                    onClick = {
-                      exportMenuExpanded = false
-                      onShareMarkdownText()
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.share_note_file)) },
-                    onClick = {
-                      exportMenuExpanded = false
-                      onShareMarkdownFile()
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.export_html)) },
-                    onClick = {
-                      exportMenuExpanded = false
-                      htmlLauncher.launch(exportBaseName(editor.title, "html"))
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.export_pdf)) },
-                    onClick = {
-                      exportMenuExpanded = false
-                      pdfLauncher.launch(exportBaseName(editor.title, "pdf"))
-                    },
-                )
-              }
-            },
-        )
+              },
+          )
+        }
       },
   ) { padding ->
     Column(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -346,32 +364,38 @@ internal fun NoteEditorScreen(
         )
       } else {
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier =
+                Modifier.fillMaxSize()
+                    .then(if (isLandscape) Modifier.imePadding() else Modifier)
+                    .padding(horizontal = if (compactLandscapeWritingMode) 8.dp else 16.dp),
+            verticalArrangement =
+                Arrangement.spacedBy(if (compactLandscapeWritingMode) 4.dp else 12.dp),
         ) {
-          BasicTextField(
-              value = editor.title,
-              onValueChange = onTitleChanged,
-              modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
-              singleLine = true,
-              textStyle =
-                  MaterialTheme.typography.headlineSmall.copy(
-                      color = MaterialTheme.colorScheme.onSurface,
-                      fontWeight = FontWeight.SemiBold,
-                  ),
-              decorationBox = { innerTextField ->
-                Box {
-                  if (editor.title.isBlank()) {
-                    Text(
-                        text = stringResource(R.string.note_title),
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+          if (!compactLandscapeWritingMode) {
+            BasicTextField(
+                value = editor.title,
+                onValueChange = onTitleChanged,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
+                singleLine = true,
+                textStyle =
+                    MaterialTheme.typography.headlineSmall.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                decorationBox = { innerTextField ->
+                  Box {
+                    if (editor.title.isBlank()) {
+                      Text(
+                          text = stringResource(R.string.note_title),
+                          style = MaterialTheme.typography.headlineSmall,
+                          color = MaterialTheme.colorScheme.onSurfaceVariant,
+                      )
+                    }
+                    innerTextField()
                   }
-                  innerTextField()
-                }
-              },
-          )
+                },
+            )
+          }
           MarkdownToolbar(
               canUndo = editHistory.canUndo,
               canRedo = editHistory.canRedo,
@@ -408,7 +432,10 @@ internal fun NoteEditorScreen(
                 onValueChange = { value ->
                   updateContent(value, coalesceWithPrevious = true)
                 },
-                modifier = Modifier.fillMaxSize().testTag(NOTE_CONTENT_EDITOR_TEST_TAG),
+                modifier =
+                    Modifier.fillMaxSize()
+                        .onFocusChanged { contentEditorFocused = it.isFocused }
+                        .testTag(NOTE_CONTENT_EDITOR_TEST_TAG),
                 placeholder = { Text(stringResource(R.string.notes_empty_content)) },
                 textStyle =
                     MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
@@ -446,6 +473,14 @@ internal fun NoteEditorScreen(
 }
 
 internal const val NOTE_CONTENT_EDITOR_TEST_TAG = "note_content_editor"
+
+internal fun shouldUseCompactLandscapeWritingMode(
+    isLandscape: Boolean,
+    isCompactViewport: Boolean,
+    contentEditorFocused: Boolean,
+): Boolean = isLandscape && isCompactViewport && contentEditorFocused
+
+private val LANDSCAPE_COMPACT_VIEWPORT_HEIGHT = 240.dp
 
 @Composable
 private fun NoteViewModeButton(
