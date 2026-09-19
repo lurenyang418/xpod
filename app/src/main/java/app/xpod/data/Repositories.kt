@@ -416,6 +416,7 @@ constructor(@param:ApplicationContext private val context: Context) {
   private val musicShuffleEnabledKey = booleanPreferencesKey("music_shuffle_enabled")
   private val musicRepeatModeKey = stringPreferencesKey("music_repeat_mode")
   private val markdownThemeKey = stringPreferencesKey("markdown_theme")
+  private val markdownCustomThemesKey = stringPreferencesKey("markdown_custom_themes")
   private val notesBackupHintShownKey = booleanPreferencesKey("notes_backup_hint_shown")
   val useDynamicColor: Flow<Boolean> = context.settingsStore.data.map { it[dynamicColor] ?: true }
   val defaultSpeed: Flow<Float> = context.settingsStore.data.map { it[speed] ?: 1f }
@@ -445,9 +446,14 @@ constructor(@param:ApplicationContext private val context: Context) {
             repeatMode = parseMusicRepeatMode(preferences[musicRepeatModeKey]),
         )
       }
-  val markdownTheme: Flow<MarkdownThemeMode> =
+  val markdownThemeSelection: Flow<MarkdownThemeSelection> =
       context.settingsStore.data.map { preferences ->
-        parseMarkdownThemeMode(preferences[markdownThemeKey])
+        parseMarkdownThemeSelection(preferences[markdownThemeKey])
+      }
+  val markdownTheme: Flow<MarkdownThemeMode> = markdownThemeSelection.map { it.mode }
+  val markdownCustomThemes: Flow<List<MarkdownCustomTheme>> =
+      context.settingsStore.data.map { preferences ->
+        decodeMarkdownCustomThemes(preferences[markdownCustomThemesKey])
       }
   val notesBackupHintShown: Flow<Boolean> =
       context.settingsStore.data.map { it[notesBackupHintShownKey] ?: false }
@@ -469,7 +475,28 @@ constructor(@param:ApplicationContext private val context: Context) {
   }
 
   suspend fun setMarkdownTheme(value: MarkdownThemeMode) {
-    context.settingsStore.edit { it[markdownThemeKey] = value.name }
+    setMarkdownThemeSelection(MarkdownThemeSelection(value))
+  }
+
+  suspend fun setMarkdownThemeSelection(value: MarkdownThemeSelection) {
+    context.settingsStore.edit { it[markdownThemeKey] = value.toStorageValue() }
+  }
+
+  suspend fun addMarkdownCustomTheme(theme: MarkdownCustomTheme): Boolean {
+    var saved = false
+    context.settingsStore.edit { preferences ->
+      val current = decodeMarkdownCustomThemes(preferences[markdownCustomThemesKey])
+      val existingIndex = current.indexOfFirst { it.id == theme.id }
+      if (existingIndex >= 0) {
+        preferences[markdownCustomThemesKey] =
+            encodeMarkdownCustomThemes(current.toMutableList().apply { set(existingIndex, theme) })
+        saved = true
+      } else if (current.size < MAX_MARKDOWN_CUSTOM_THEMES) {
+        preferences[markdownCustomThemesKey] = encodeMarkdownCustomThemes(current + theme)
+        saved = true
+      }
+    }
+    return saved
   }
 
   suspend fun markNotesBackupHintShown() {

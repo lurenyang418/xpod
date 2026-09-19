@@ -301,6 +301,32 @@ class XpodDatabaseMigrationTest {
         }
   }
 
+  @Test
+  fun migrate8To9AddsPerNoteThemeWithFollowAppDefault() {
+    helper.createDatabase(TEST_DATABASE, 8).apply {
+      execSQL(
+          "INSERT INTO LocalMarkdownNoteEntity (title, content, createdEpochMs, modifiedEpochMs) VALUES ('Title', 'body', 1, 2)"
+      )
+      close()
+    }
+
+    helper
+        .runMigrationsAndValidate(
+            TEST_DATABASE,
+            9,
+            true,
+            XpodDatabaseMigrations.MIGRATION_8_9,
+        )
+        .use { database ->
+          database.query("SELECT title, theme FROM LocalMarkdownNoteEntity WHERE id = 1").use {
+              cursor ->
+            cursor.moveToFirst()
+            assertEquals("Title", cursor.getString(0))
+            assertEquals("FollowApp", cursor.getString(1))
+          }
+        }
+  }
+
   private companion object {
     const val TEST_DATABASE = "xpod-migration-test"
   }

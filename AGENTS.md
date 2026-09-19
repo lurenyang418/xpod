@@ -21,5 +21,7 @@ XPOD is a Kotlin and Jetpack Compose Android podcast client. The app targets And
 - Keep Media3 dependencies on the version declared in `gradle/libs.versions.toml`.
 - Use the Storage Access Framework for user-selected files and folders. Library-wide media scans use the narrowly scoped platform permissions `READ_MEDIA_AUDIO` and `READ_MEDIA_VIDEO` with MediaStore. Do not add broad storage access such as `MANAGE_EXTERNAL_STORAGE`; keep the SAF-limited alternative available and update the README when storage access behavior changes.
 - Keep local Markdown notes independent from Cloud Memos. Store note content and editor preferences through the repository/DataStore layers, keep editor state in a `StateFlow`, and preserve UTF-8/LF normalization only at export time.
+- Keep Markdown UI split by responsibility (note list, editor, toolbar, preview) instead of growing one screen file. Import local images through SAF, copy them to app-private note storage, resolve only validated note-owned attachment references, and include referenced assets in ZIP backups; do not persist picker grants or add broad storage permissions.
+- Keep Markdown source syntax highlighting offset-preserving: do not rewrite source text or caret positions, and cap work for very large documents to protect typing responsiveness.
 - Run `spotlessCheck`, the focused test suite, and the relevant build task for every changed behavior before committing.
 - Before publishing a release, run `spotlessCheck testDebugUnitTest lintDebug assembleRelease` and complete a real-device smoke test.

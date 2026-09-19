@@ -1,18 +1,17 @@
 package app.xpod.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import app.xpod.R
 import app.xpod.data.AppTab
 import app.xpod.data.ReadingPreferences
@@ -31,10 +30,17 @@ class SettingsScreenTest {
 
   @Test
   fun tabManagerShowsCurrentTabsAndForwardsToggle() {
-    val context = InstrumentationRegistry.getInstrumentation().targetContext
     var toggled: Pair<AppTab, Boolean>? = null
+    var manageTabsLabel = ""
+    var tabOrderLabel = ""
+    var podcastsLabel = ""
+    var libraryLabel = ""
 
     compose.setContent {
+      manageTabsLabel = stringResource(R.string.manage_tab_order)
+      tabOrderLabel = stringResource(R.string.tab_order)
+      podcastsLabel = stringResource(R.string.podcasts)
+      libraryLabel = stringResource(R.string.library)
       MaterialTheme {
         SettingsScreen(
             theme = ThemeMode.System,
@@ -64,16 +70,11 @@ class SettingsScreenTest {
       }
     }
 
-    repeat(4) {
-      compose.onNodeWithTag("settings_list").performTouchInput { swipeUp() }
-    }
-    compose
-        .onNodeWithText(context.getString(R.string.manage_tab_order))
-        .performScrollTo()
-        .performClick()
-    compose.onAllNodesWithText(context.getString(R.string.tab_order)).assertCountEquals(2)
-    compose.onNodeWithContentDescription(context.getString(R.string.podcasts)).performClick()
+    compose.onNodeWithTag("settings_list").performScrollToNode(hasText(manageTabsLabel))
+    compose.onNodeWithText(manageTabsLabel).performClick()
+    compose.onAllNodesWithText(tabOrderLabel).assertCountEquals(2)
+    compose.onNodeWithContentDescription(podcastsLabel).performClick()
     compose.runOnIdle { assertEquals(AppTab.Podcasts to false, toggled) }
-    compose.onAllNodesWithText(context.getString(R.string.library)).assertCountEquals(0)
+    compose.onAllNodesWithText(libraryLabel).assertCountEquals(0)
   }
 }

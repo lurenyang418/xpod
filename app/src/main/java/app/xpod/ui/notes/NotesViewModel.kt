@@ -7,18 +7,35 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.xpod.BuildConfig
 import app.xpod.R
+import app.xpod.data.InvalidMarkdownThemeException
 import app.xpod.data.LocalMarkdownNoteEntity
 import app.xpod.data.LocalMarkdownNotesRepository
+import app.xpod.data.MAX_MARKDOWN_NOTE_CONTENT_LENGTH
+import app.xpod.data.MAX_MARKDOWN_NOTE_TITLE_LENGTH
+import app.xpod.data.MAX_MARKDOWN_THEME_JSON_LENGTH
+import app.xpod.data.MarkdownCustomTheme
+import app.xpod.data.MarkdownCustomThemeLimitException
+import app.xpod.data.MarkdownImageTooLargeException
+import app.xpod.data.MarkdownImportTooLargeException
 import app.xpod.data.MarkdownThemeMode
+import app.xpod.data.MarkdownThemeSelection
+import app.xpod.data.MarkdownThemeSpec
 import app.xpod.data.SettingsRepository
+import app.xpod.data.UnsupportedMarkdownImageException
+import app.xpod.data.UnsupportedMarkdownImportException
 import app.xpod.data.displayTitle
+import app.xpod.data.encodeMarkdownThemeFile
+import app.xpod.data.parseMarkdownThemeFile
+import app.xpod.data.parseMarkdownThemeSelection
 import app.xpod.ui.shared.StatusSeverity
 import app.xpod.ui.shared.UiStatus
+import app.xpod.util.runCatchingCancellable
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.time.Clock
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -34,6 +51,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 enum class NoteSort {
   Modified,
@@ -46,7 +64,9 @@ data class NotesUiState(
     val query: String = "",
     val sort: NoteSort = NoteSort.Modified,
     val theme: MarkdownThemeMode = MarkdownThemeMode.FollowApp,
+    val customThemes: List<MarkdownCustomTheme> = emptyList(),
     val isExporting: Boolean = false,
+    val isImporting: Boolean = false,
     val showBackupHint: Boolean = false,
     val status: UiStatus? = null,
 )
@@ -56,8 +76,15 @@ data class NoteEditorUiState(
     val title: String,
     val content: String,
     val theme: MarkdownThemeMode,
+    val customThemeId: String? = null,
+    val customTheme: MarkdownCustomTheme? = null,
     val isSaving: Boolean = false,
+    val attachmentUris: Map<String, Uri> = emptyMap(),
+    val pendingImageInsertion: NoteImageInsertion? = null,
+    val isAttachingImage: Boolean = false,
 )
+
+data class NoteImageInsertion(val markdownReference: String, val altText: String)
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -72,6 +99,7 @@ constructor(
   private val query = MutableStateFlow("")
   private val sort = MutableStateFlow(NoteSort.Modified)
   private val isExporting = MutableStateFlow(false)
+  private val isImporting = MutableStateFlow(false)
   private val status = MutableStateFlow<UiStatus?>(null)
   private val showBackupHint = MutableStateFlow(false)
   private val editor = MutableStateFlow<NoteEditorUiState?>(null)
@@ -97,6 +125,12 @@ constructor(
           SharingStarted.WhileSubscribed(5_000),
           MarkdownThemeMode.FollowApp,
       )
+  private val customThemes: StateFlow<List<MarkdownCustomTheme>> =
+      settings.markdownCustomThemes.stateIn(
+          viewModelScope,
+          SharingStarted.WhileSubscribed(5_000),
+          emptyList(),
+      )
 
   private val contentState: StateFlow<NotesUiState> =
       combine(sortedNotes, query, sort, theme, isExporting) {
@@ -113,9 +147,15 @@ constructor(
                 isExporting = exporting,
             )
           }
+          .combine(customThemes) { current, currentCustomThemes ->
+            current.copy(customThemes = currentCustomThemes)
+          }
           .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NotesUiState())
   private val baseState: StateFlow<NotesUiState> =
-      combine(contentState, status) { current, message -> current.copy(status = message) }
+      combine(contentState, isImporting) { current, importing ->
+            current.copy(isImporting = importing)
+          }
+          .combine(status) { current, message -> current.copy(status = message) }
           .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NotesUiState())
   val state: StateFlow<NotesUiState> =
       combine(baseState, showBackupHint) { current, backupHint ->
@@ -135,16 +175,60 @@ constructor(
 
   fun createNote(onCreated: (Long) -> Unit) {
     viewModelScope.launch {
-      var created = false
-      runCatching { repository.create(clock.millis()) }
-          .onSuccess {
-            created = true
-            onCreated(it)
-          }
-          .onFailure { showError(R.string.note_create_failed) }
-      if (created && settings.notesBackupHintShown.first().not()) {
-        settings.markNotesBackupHintShown()
-        showBackupHint.value = true
+      val id =
+          runCatching {
+                val selection = settings.markdownThemeSelection.first()
+                val customThemeIds = settings.markdownCustomThemes.first().map { it.id }.toSet()
+                val validSelection =
+                    if (
+                        selection.mode == MarkdownThemeMode.Custom &&
+                            selection.customThemeId !in customThemeIds
+                    ) {
+                      MarkdownThemeSelection(MarkdownThemeMode.FollowApp)
+                    } else {
+                      selection
+                    }
+                repository.create(clock.millis(), themeSelection = validSelection)
+              }
+              .getOrElse {
+                showError(R.string.note_create_failed)
+                return@launch
+              }
+      onCreated(id)
+      showBackupHintIfNeeded()
+    }
+  }
+
+  fun importMarkdown(uri: Uri, onImported: (Long) -> Unit) {
+    viewModelScope.launch {
+      isImporting.value = true
+      try {
+        runCatchingCancellable {
+              withContext(Dispatchers.IO) {
+                repository.importMarkdown(
+                    uri = uri,
+                    nowEpochMs = clock.millis(),
+                    untitledLabel = context.getString(R.string.untitled_note),
+                )
+              }
+            }
+            .fold(
+                onSuccess = { id ->
+                  showStatus(R.string.note_imported)
+                  showBackupHintIfNeeded()
+                  onImported(id)
+                },
+                onFailure = { error ->
+                  when (error) {
+                    is UnsupportedMarkdownImportException ->
+                        showError(R.string.note_import_unsupported)
+                    is MarkdownImportTooLargeException -> showError(R.string.note_import_too_large)
+                    else -> showError(R.string.note_import_failed)
+                  }
+                },
+            )
+      } finally {
+        isImporting.value = false
       }
     }
   }
@@ -160,12 +244,27 @@ constructor(
         showError(R.string.note_not_found)
         onNotFound()
       } else {
+        val attachmentUris = repository.imageAttachments(id)
+        val selection = parseMarkdownThemeSelection(note.theme)
+        val customTheme =
+            selection.customThemeId?.let { themeId ->
+              settings.markdownCustomThemes.first().firstOrNull { it.id == themeId }
+            }
+        val selectedTheme =
+            if (selection.mode == MarkdownThemeMode.Custom && customTheme == null) {
+              MarkdownThemeMode.FollowApp
+            } else {
+              selection.mode
+            }
         editor.value =
             NoteEditorUiState(
                 id = note.id,
                 title = note.title,
                 content = note.content,
-                theme = theme.value,
+                theme = selectedTheme,
+                customThemeId = customTheme?.id,
+                customTheme = customTheme,
+                attachmentUris = attachmentUris,
             )
       }
     }
@@ -183,21 +282,168 @@ constructor(
   }
 
   fun setTitle(value: String) {
-    editor.update { it?.copy(title = value.take(MAX_TITLE_LENGTH)) }
+    editor.update { it?.copy(title = value.take(MAX_MARKDOWN_NOTE_TITLE_LENGTH)) }
     scheduleSave()
   }
 
   fun setContent(value: String) {
-    editor.update { it?.copy(content = value.take(MAX_CONTENT_LENGTH)) }
+    editor.update { it?.copy(content = value.take(MAX_MARKDOWN_NOTE_CONTENT_LENGTH)) }
     scheduleSave()
   }
 
   fun setTheme(value: MarkdownThemeMode) {
-    editor.update { it?.copy(theme = value) }
+    if (value == MarkdownThemeMode.Custom) return
+    editor.update { it?.copy(theme = value, customThemeId = null, customTheme = null) }
+    scheduleSave()
     viewModelScope.launch {
-      // The selected theme is global for the local Markdown workspace. Keeping it in the
-      // settings repository lets the editor and preview agree after process recreation.
-      settings.setMarkdownTheme(value)
+      // Reuse the last selected theme as the default for newly created notes. Existing notes
+      // persist their own theme in Room.
+      settings.setMarkdownThemeSelection(MarkdownThemeSelection(value))
+    }
+  }
+
+  fun setCustomTheme(id: String) {
+    val customTheme = customThemes.value.firstOrNull { it.id == id } ?: return
+    editor.update {
+      it?.copy(
+          theme = MarkdownThemeMode.Custom,
+          customThemeId = customTheme.id,
+          customTheme = customTheme,
+      )
+    }
+    scheduleSave()
+    viewModelScope.launch {
+      settings.setMarkdownThemeSelection(
+          MarkdownThemeSelection(MarkdownThemeMode.Custom, customTheme.id)
+      )
+    }
+  }
+
+  fun importCustomTheme(uri: Uri) {
+    viewModelScope.launch {
+      runCatchingCancellable {
+            val source =
+                withContext(Dispatchers.IO) {
+                  val input =
+                      context.contentResolver.openInputStream(uri)
+                          ?: error("Could not open the selected theme")
+                  val bytes = input.use { it.readNBytes(MAX_MARKDOWN_THEME_JSON_LENGTH + 1) }
+                  if (bytes.size > MAX_MARKDOWN_THEME_JSON_LENGTH) {
+                    throw InvalidMarkdownThemeException()
+                  }
+                  String(bytes, Charsets.UTF_8)
+                }
+            val customTheme = parseMarkdownThemeFile(source)
+            if (!settings.addMarkdownCustomTheme(customTheme)) {
+              throw MarkdownCustomThemeLimitException()
+            }
+            customTheme
+          }
+          .fold(
+              onSuccess = { customTheme ->
+                editor.update {
+                  it?.copy(
+                      theme = MarkdownThemeMode.Custom,
+                      customThemeId = customTheme.id,
+                      customTheme = customTheme,
+                  )
+                }
+                scheduleSave()
+                settings.setMarkdownThemeSelection(
+                    MarkdownThemeSelection(MarkdownThemeMode.Custom, customTheme.id)
+                )
+                showStatus(R.string.markdown_theme_imported)
+              },
+              onFailure = { error ->
+                when (error) {
+                  is InvalidMarkdownThemeException ->
+                      showError(R.string.markdown_theme_import_invalid)
+                  is MarkdownCustomThemeLimitException ->
+                      showError(R.string.markdown_theme_limit_reached)
+                  else -> showError(R.string.markdown_theme_import_failed)
+                }
+              },
+          )
+    }
+  }
+
+  fun exportCustomTheme(themeId: String, target: Uri) {
+    viewModelScope.launch {
+      isExporting.value = true
+      try {
+        runCatchingCancellable {
+              val customTheme =
+                  settings.markdownCustomThemes.first().firstOrNull { it.id == themeId }
+                      ?: error("Custom theme no longer exists")
+              withContext(Dispatchers.IO) {
+                val output =
+                    context.contentResolver.openOutputStream(target)
+                        ?: error("Could not open the theme export target")
+                output.bufferedWriter(Charsets.UTF_8).use {
+                  it.write(encodeMarkdownThemeFile(customTheme))
+                }
+              }
+            }
+            .fold(
+                onSuccess = { showStatus(R.string.markdown_theme_exported) },
+                onFailure = { showError(R.string.markdown_theme_export_failed) },
+            )
+      } finally {
+        isExporting.value = false
+      }
+    }
+  }
+
+  fun attachImage(uri: Uri) {
+    val current = editor.value ?: return
+    if (current.isAttachingImage) return
+    editor.value = current.copy(isAttachingImage = true)
+    viewModelScope.launch {
+      runCatchingCancellable {
+            withContext(Dispatchers.IO) { repository.attachImage(current.id, uri) }
+          }
+          .fold(
+              onSuccess = { attachment ->
+                val latest = editor.value
+                if (latest?.id != current.id) {
+                  repository.removeImageAttachment(current.id, attachment.markdownReference)
+                } else {
+                  editor.value =
+                      latest.copy(
+                          attachmentUris =
+                              latest.attachmentUris +
+                                  (attachment.markdownReference to attachment.fileUri),
+                          pendingImageInsertion =
+                              NoteImageInsertion(
+                                  markdownReference = attachment.markdownReference,
+                                  altText = attachment.altText,
+                              ),
+                          isAttachingImage = false,
+                      )
+                  showStatus(R.string.note_image_attached)
+                }
+              },
+              onFailure = { error ->
+                editor.update { state ->
+                  if (state?.id == current.id) state.copy(isAttachingImage = false) else state
+                }
+                when (error) {
+                  is MarkdownImageTooLargeException -> showError(R.string.note_image_too_large)
+                  is UnsupportedMarkdownImageException -> showError(R.string.note_image_unsupported)
+                  else -> showError(R.string.note_image_attach_failed)
+                }
+              },
+          )
+    }
+  }
+
+  fun consumeImageInsertion(reference: String) {
+    editor.update { state ->
+      if (state?.pendingImageInsertion?.markdownReference == reference) {
+        state.copy(pendingImageInsertion = null)
+      } else {
+        state
+      }
     }
   }
 
@@ -213,8 +459,12 @@ constructor(
     export(noteId) { note -> repository.exportMarkdown(note, target) }
   }
 
-  fun exportHtml(noteId: Long, target: Uri, theme: MarkdownThemeMode) {
+  fun exportHtml(noteId: Long, target: Uri, theme: MarkdownThemeSpec) {
     export(noteId) { note -> repository.exportHtml(note, target, theme) }
+  }
+
+  fun exportPdf(noteId: Long, target: Uri, theme: MarkdownThemeSpec) {
+    export(noteId) { note -> repository.exportPdf(note, target, theme) }
   }
 
   fun exportZip(target: Uri) {
@@ -226,6 +476,7 @@ constructor(
                 target = target,
                 exportedAtEpochMs = clock.millis(),
                 appVersion = BuildConfig.VERSION_NAME,
+                customThemes = settings.markdownCustomThemes.first(),
             )
           }
           .onSuccess { showStatus(R.string.notes_zip_exported) }
@@ -281,6 +532,11 @@ constructor(
     viewModelScope.launch {
       isExporting.value = true
       runCatching {
+            if (editor.value?.id == noteId) {
+              saveJob?.cancel()
+              maxSaveJob?.cancel()
+              persistEditor()
+            }
             val note = requireNotNull(repository.find(noteId)) { "Note no longer exists" }
             action(note)
           }
@@ -310,7 +566,15 @@ constructor(
       val current = editor.value ?: return
       editor.value = current.copy(isSaving = true)
       runCatching {
-            if (!repository.save(current.id, current.title, current.content, clock.millis())) {
+            if (
+                !repository.save(
+                    current.id,
+                    current.title,
+                    current.content,
+                    clock.millis(),
+                    themeSelection = MarkdownThemeSelection(current.theme, current.customThemeId),
+                )
+            ) {
               showError(R.string.note_save_missing)
             }
           }
@@ -328,13 +592,18 @@ constructor(
   private fun showError(messageRes: Int) {
     status.value = UiStatus(context.getString(messageRes), StatusSeverity.Error)
   }
+
+  private suspend fun showBackupHintIfNeeded() {
+    if (!settings.notesBackupHintShown.first()) {
+      settings.markNotesBackupHintShown()
+      showBackupHint.value = true
+    }
+  }
 }
 
 private const val AUTOSAVE_DELAY_MS = 350L
 private const val MAX_AUTOSAVE_DELAY_MS = 1_500L
 private const val MAX_QUERY_LENGTH = 100
-private const val MAX_TITLE_LENGTH = 200
-private const val MAX_CONTENT_LENGTH = 500_000
 
 internal fun noteComparator(
     sort: NoteSort,

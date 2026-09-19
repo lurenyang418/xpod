@@ -19,7 +19,7 @@ import androidx.room.RoomDatabase
             PlaybackStateEntity::class,
             QueueItemEntity::class,
         ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class XpodDatabase : RoomDatabase() {

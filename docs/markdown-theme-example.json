@@ -1,0 +1,18 @@
+{
+  "format": "xpod-markdown-theme",
+  "version": 1,
+  "name": "Ocean",
+  "background": "#0B1F2A",
+  "text": "#F0F7FA",
+  "codeBackground": "#183746",
+  "codeText": "#F0F7FA",
+  "link": "#8BD8F5",
+  "quoteBackground": "#16313F",
+  "tableBorder": "#3F6577",
+  "fontFamily": "SansSerif",
+  "bodyFontSizeSp": 16.0,
+  "headingFontSizeSp": 30.0,
+  "paragraphSpacingDp": 12,
+  "contentWidthDp": 800,
+  "lineHeightMultiplier": 1.65
+}

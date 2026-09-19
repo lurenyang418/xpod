@@ -2,6 +2,8 @@ package app.xpod.data
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Entity
 import androidx.room.Fts4
@@ -14,17 +16,24 @@ import app.xpod.R
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.io.OutputStreamWriter
 import java.nio.charset.StandardCharsets
+import java.util.Locale
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
-import kotlinx.serialization.Serializable
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
 import org.intellij.markdown.html.HtmlGenerator
 import org.intellij.markdown.parser.MarkdownParser
@@ -36,6 +45,7 @@ data class LocalMarkdownNoteEntity(
     val content: String = "",
     val createdEpochMs: Long,
     val modifiedEpochMs: Long,
+    @ColumnInfo(defaultValue = "'FollowApp'") val theme: String = MarkdownThemeMode.FollowApp.name,
 )
 
 @Entity(tableName = "LocalMarkdownNoteSearch")
@@ -50,6 +60,7 @@ enum class MarkdownThemeMode {
   GitHub,
   Newsprint,
   Night,
+  Custom,
 }
 
 enum class MarkdownFontFamily {
@@ -117,10 +128,13 @@ internal fun markdownThemeSpec(mode: MarkdownThemeMode): MarkdownThemeSpec =
               tableBorderArgb = 0xFFD0D7DE,
               fontFamily = MarkdownFontFamily.SansSerif,
           )
+      MarkdownThemeMode.Custom -> markdownThemeSpec(MarkdownThemeMode.GitHub)
     }
 
 internal fun parseMarkdownThemeMode(value: String?): MarkdownThemeMode =
-    MarkdownThemeMode.entries.firstOrNull { it.name == value } ?: MarkdownThemeMode.FollowApp
+    MarkdownThemeMode.entries.firstOrNull {
+      it != MarkdownThemeMode.Custom && it.name == value
+    } ?: MarkdownThemeMode.FollowApp
 
 @Dao
 interface LocalMarkdownNoteDao {
@@ -151,14 +165,6 @@ interface LocalMarkdownNoteDao {
   @Query("DELETE FROM LocalMarkdownNoteEntity WHERE id = :id") suspend fun delete(id: Long)
 }
 
-@Serializable
-private data class MarkdownNotesManifest(
-    val formatVersion: Int = 1,
-    val exportedAtEpochMs: Long,
-    val noteCount: Int,
-    val appVersion: String,
-)
-
 @Singleton
 class LocalMarkdownNotesRepository
 @Inject
@@ -167,6 +173,7 @@ constructor(
     @param:ApplicationContext private val context: Context,
 ) {
   private val notes = database.localMarkdownNotes()
+  private val attachments = MarkdownNoteAttachmentStore(context)
   private val json = Json { prettyPrint = true }
 
   fun observe(query: String): Flow<List<LocalMarkdownNoteEntity>> {
@@ -179,52 +186,127 @@ constructor(
 
   suspend fun find(id: Long): LocalMarkdownNoteEntity? = notes.find(id)
 
-  suspend fun create(nowEpochMs: Long): Long =
+  suspend fun create(
+      nowEpochMs: Long,
+      theme: MarkdownThemeMode = MarkdownThemeMode.FollowApp,
+      themeSelection: MarkdownThemeSelection? = null,
+  ): Long =
       notes.insert(
           LocalMarkdownNoteEntity(
               createdEpochMs = nowEpochMs,
               modifiedEpochMs = nowEpochMs,
+              theme = themeSelection?.toStorageValue() ?: theme.name,
           )
       )
 
-  suspend fun save(id: Long, title: String, content: String, nowEpochMs: Long): Boolean {
+  suspend fun save(
+      id: Long,
+      title: String,
+      content: String,
+      nowEpochMs: Long,
+      theme: MarkdownThemeMode? = null,
+      themeSelection: MarkdownThemeSelection? = null,
+  ): Boolean {
     val current = notes.find(id) ?: return false
-    if (current.title == title && current.content == content) return true
+    val themeValue = themeSelection?.toStorageValue() ?: theme?.name ?: current.theme
+    if (current.title == title && current.content == content && current.theme == themeValue) {
+      return true
+    }
     notes.upsert(
         current.copy(
             title = title,
             content = content,
             modifiedEpochMs = maxOf(nowEpochMs, current.modifiedEpochMs + 1L),
+            theme = themeValue,
         )
     )
     return true
   }
 
-  suspend fun delete(id: Long) = notes.delete(id)
+  suspend fun delete(id: Long) {
+    notes.delete(id)
+    withContext(Dispatchers.IO) { attachments.deleteNoteAttachments(id) }
+  }
+
+  internal suspend fun attachImage(noteId: Long, source: Uri): MarkdownImageAttachment {
+    check(notes.find(noteId) != null) { "Note no longer exists" }
+    return attachments.importImage(noteId, source)
+  }
+
+  internal suspend fun imageAttachments(noteId: Long): Map<String, Uri> =
+      withContext(Dispatchers.IO) { attachments.attachmentsForNote(noteId) }
+
+  internal suspend fun removeImageAttachment(noteId: Long, reference: String) {
+    withContext(Dispatchers.IO) { attachments.remove(noteId, reference) }
+  }
+
+  suspend fun importMarkdown(uri: Uri, nowEpochMs: Long, untitledLabel: String): Long =
+      withContext(Dispatchers.IO) {
+        val displayName =
+            context.contentResolver
+                .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { cursor ->
+                  val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                  if (nameIndex >= 0 && cursor.moveToFirst()) cursor.getString(nameIndex) else null
+                }
+                ?: uri.lastPathSegment?.substringAfterLast('/')
+                ?: throw IllegalArgumentException("The selected file has no name")
+        val input =
+            context.contentResolver.openInputStream(uri)
+                ?: throw IllegalArgumentException("The selected file could not be opened")
+        val content = input.use(::readMarkdownImportContent)
+        notes.insert(markdownNoteFromImport(displayName, content, nowEpochMs, untitledLabel))
+      }
 
   suspend fun exportMarkdown(note: LocalMarkdownNoteEntity, target: Uri) {
-    context.contentResolver.openOutputStream(target)?.use { output ->
-      OutputStreamWriter(output, StandardCharsets.UTF_8).buffered().use { writer ->
-        writeMarkdown(writer, note)
-      }
-    } ?: error("Could not open the Markdown export target")
+    withContext(Dispatchers.IO) {
+      context.contentResolver.openOutputStream(target)?.use { output ->
+        OutputStreamWriter(output, StandardCharsets.UTF_8).buffered().use { writer ->
+          writeMarkdown(writer, note)
+        }
+      } ?: error("Could not open the Markdown export target")
+    }
   }
 
   suspend fun writeMarkdownToFile(note: LocalMarkdownNoteEntity, target: File) {
-    target.parentFile?.mkdirs()
-    FileOutputStream(target).use { output ->
-      OutputStreamWriter(output, StandardCharsets.UTF_8).buffered().use { writer ->
-        writeMarkdown(writer, note)
+    withContext(Dispatchers.IO) {
+      target.parentFile?.mkdirs()
+      FileOutputStream(target).use { output ->
+        OutputStreamWriter(output, StandardCharsets.UTF_8).buffered().use { writer ->
+          writeMarkdown(writer, note)
+        }
       }
     }
   }
 
-  suspend fun exportHtml(note: LocalMarkdownNoteEntity, target: Uri, theme: MarkdownThemeMode) {
-    context.contentResolver.openOutputStream(target)?.use { output ->
-      OutputStreamWriter(output, StandardCharsets.UTF_8).buffered().use { writer ->
-        writer.write(markdownHtmlDocument(note, theme, context.getString(R.string.untitled_note)))
-      }
-    } ?: error("Could not open the HTML export target")
+  suspend fun exportHtml(note: LocalMarkdownNoteEntity, target: Uri, theme: MarkdownThemeMode) =
+      exportHtml(note, target, markdownThemeSpec(theme))
+
+  suspend fun exportHtml(note: LocalMarkdownNoteEntity, target: Uri, theme: MarkdownThemeSpec) {
+    withContext(Dispatchers.IO) {
+      context.contentResolver.openOutputStream(target)?.use { output ->
+        OutputStreamWriter(output, StandardCharsets.UTF_8).buffered().use { writer ->
+          writer.write(markdownHtmlDocument(note, theme, context.getString(R.string.untitled_note)))
+        }
+      } ?: error("Could not open the HTML export target")
+    }
+  }
+
+  suspend fun exportPdf(note: LocalMarkdownNoteEntity, target: Uri, theme: MarkdownThemeMode) =
+      exportPdf(note, target, markdownThemeSpec(theme))
+
+  suspend fun exportPdf(note: LocalMarkdownNoteEntity, target: Uri, theme: MarkdownThemeSpec) {
+    withContext(Dispatchers.IO) {
+      context.contentResolver.openOutputStream(target)?.use { output ->
+        MarkdownPdfExporter(context)
+            .write(
+                note = note,
+                theme = theme,
+                untitledLabel = context.getString(R.string.untitled_note),
+                output = output,
+            )
+      } ?: error("Could not open the PDF export target")
+    }
   }
 
   suspend fun exportZip(
@@ -232,36 +314,59 @@ constructor(
       target: Uri,
       exportedAtEpochMs: Long,
       appVersion: String,
+      customThemes: List<MarkdownCustomTheme> = emptyList(),
   ) {
-    context.contentResolver.openOutputStream(target)?.use { output ->
-      ZipOutputStream(output).use { zip ->
-        val usedNames = mutableMapOf<String, Int>()
-        allNotes.forEachIndexed { index, note ->
-          val baseName =
-              safeExportBaseName(
-                  note.displayTitle(context.getString(R.string.untitled_note)),
-                  index + 1,
+    withContext(Dispatchers.IO) {
+      context.contentResolver.openOutputStream(target)?.use { output ->
+        ZipOutputStream(output).use { zip ->
+          val usedNames = mutableSetOf<String>()
+          val exportedNotes = mutableListOf<JsonObject>()
+          var attachmentCount = 0
+          allNotes.forEachIndexed { index, note ->
+            val uniqueName =
+                uniqueArchiveBaseName(
+                    note.displayTitle(context.getString(R.string.untitled_note)),
+                    index + 1,
+                    usedNames,
+                )
+            val attachmentFolder = "attachments/note-${note.id}"
+            val replacements = attachments.addToZip(zip, note.id, attachmentFolder)
+            attachmentCount += replacements.size
+            val exportedContent = rewriteMarkdownAttachmentReferences(note.content, replacements)
+            zip.putNextEntry(ZipEntry("$uniqueName.md"))
+            zip.write(
+                normalizeMarkdownForExport(exportedContent).toByteArray(StandardCharsets.UTF_8)
+            )
+            zip.closeEntry()
+            exportedNotes += buildJsonObject {
+              put("fileName", "$uniqueName.md")
+              put("theme", note.theme)
+            }
+          }
+          zip.putNextEntry(ZipEntry("manifest.json"))
+          val manifest =
+              json.encodeToString(
+                  JsonObject.serializer(),
+                  buildJsonObject {
+                    put("formatVersion", 1)
+                    put("exportedAtEpochMs", exportedAtEpochMs)
+                    put("noteCount", allNotes.size)
+                    put("attachmentCount", attachmentCount)
+                    put("appVersion", appVersion)
+                    put("notes", buildJsonArray { exportedNotes.forEach { add(it) } })
+                    put(
+                        "customThemes",
+                        buildJsonArray {
+                          customThemes.forEach { add(markdownThemeJsonObject(it)) }
+                        },
+                    )
+                  },
               )
-          val occurrence = (usedNames[baseName] ?: 0) + 1
-          usedNames[baseName] = occurrence
-          val uniqueName = if (occurrence == 1) baseName else "$baseName ($occurrence)"
-          zip.putNextEntry(ZipEntry("$uniqueName.md"))
-          zip.write(normalizeMarkdownForExport(note.content).toByteArray(StandardCharsets.UTF_8))
+          zip.write(manifest.toByteArray(StandardCharsets.UTF_8))
           zip.closeEntry()
         }
-        zip.putNextEntry(ZipEntry("manifest.json"))
-        val manifest =
-            json.encodeToString(
-                MarkdownNotesManifest(
-                    exportedAtEpochMs = exportedAtEpochMs,
-                    noteCount = allNotes.size,
-                    appVersion = appVersion,
-                )
-            )
-        zip.write(manifest.toByteArray(StandardCharsets.UTF_8))
-        zip.closeEntry()
-      }
-    } ?: error("Could not open the ZIP export target")
+      } ?: error("Could not open the ZIP export target")
+    }
   }
 
   suspend fun all(): List<LocalMarkdownNoteEntity> = notes.observeAll().first()
@@ -282,6 +387,52 @@ internal fun firstMarkdownHeading(content: String): String? =
               ?.takeIf(String::isNotEmpty)
         }
 
+internal fun markdownNoteFromImport(
+    displayName: String,
+    content: String,
+    nowEpochMs: Long,
+    untitledLabel: String,
+): LocalMarkdownNoteEntity {
+  val trimmedDisplayName = displayName.trim()
+  if (!trimmedDisplayName.endsWith(".md", ignoreCase = true)) {
+    throw UnsupportedMarkdownImportException()
+  }
+  if (content.length > MAX_MARKDOWN_NOTE_CONTENT_LENGTH) {
+    throw MarkdownImportTooLargeException()
+  }
+  val filenameTitle = trimmedDisplayName.dropLast(3).trim().ifBlank { untitledLabel }
+  val title = (firstMarkdownHeading(content) ?: filenameTitle).take(MAX_MARKDOWN_NOTE_TITLE_LENGTH)
+  return LocalMarkdownNoteEntity(
+      title = title,
+      content = content,
+      createdEpochMs = nowEpochMs,
+      modifiedEpochMs = nowEpochMs,
+  )
+}
+
+internal fun readMarkdownImportContent(input: InputStream): String {
+  val content = StringBuilder()
+  input.bufferedReader(StandardCharsets.UTF_8).use { reader ->
+    val buffer = CharArray(8_192)
+    val limitIncludingBom = MAX_MARKDOWN_NOTE_CONTENT_LENGTH + 2
+    while (content.length < limitIncludingBom) {
+      val count = reader.read(buffer, 0, minOf(buffer.size, limitIncludingBom - content.length))
+      if (count < 0) break
+      content.append(buffer, 0, count)
+    }
+  }
+  val result = content.toString().removePrefix("\uFEFF")
+  if (result.length > MAX_MARKDOWN_NOTE_CONTENT_LENGTH) throw MarkdownImportTooLargeException()
+  return result
+}
+
+internal class UnsupportedMarkdownImportException : IllegalArgumentException()
+
+internal class MarkdownImportTooLargeException : IllegalArgumentException()
+
+internal const val MAX_MARKDOWN_NOTE_CONTENT_LENGTH = 500_000
+internal const val MAX_MARKDOWN_NOTE_TITLE_LENGTH = 200
+
 internal fun normalizeMarkdownForExport(content: String): String =
     content.replace("\r\n", "\n").replace('\r', '\n').trimEnd('\n') + "\n"
 
@@ -296,6 +447,21 @@ internal fun safeExportBaseName(title: String, fallbackIndex: Int): String {
   return sanitized.ifEmpty { "note-$fallbackIndex" }
 }
 
+internal fun uniqueArchiveBaseName(
+    title: String,
+    fallbackIndex: Int,
+    usedNames: MutableSet<String>,
+): String {
+  val baseName = safeExportBaseName(title, fallbackIndex)
+  var candidate = baseName
+  var occurrence = 2
+  while (!usedNames.add(candidate.lowercase(Locale.ROOT))) {
+    candidate = "$baseName ($occurrence)"
+    occurrence++
+  }
+  return candidate
+}
+
 internal fun markdownFtsQuery(value: String): String =
     value.trim().split(Regex("\\s+")).filter(String::isNotEmpty).joinToString(" AND ") { token ->
       "\"${token.replace("\"", "\"\"")}\"*"
@@ -304,6 +470,12 @@ internal fun markdownFtsQuery(value: String): String =
 internal fun markdownHtmlDocument(
     note: LocalMarkdownNoteEntity,
     theme: MarkdownThemeMode,
+    untitledLabel: String,
+): String = markdownHtmlDocument(note, markdownThemeSpec(theme), untitledLabel)
+
+internal fun markdownHtmlDocument(
+    note: LocalMarkdownNoteEntity,
+    theme: MarkdownThemeSpec,
     untitledLabel: String,
 ): String {
   val markdown = normalizeMarkdownForExport(note.content)
@@ -361,8 +533,7 @@ private val SAFE_HTML_TAG =
         "(?i)</?(?:a|blockquote|br|code|del|div|em|h[1-6]|hr|img|input|li|ol|p|pre|span|strong|table|tbody|td|tfoot|th|thead|tr|ul)(?:\\s[^>]*)?/?>"
     )
 
-private fun markdownThemeCss(theme: MarkdownThemeMode): String {
-  val spec = markdownThemeSpec(theme)
+private fun markdownThemeCss(spec: MarkdownThemeSpec): String {
   val font =
       if (spec.fontFamily == MarkdownFontFamily.Serif) "Georgia,serif" else "system-ui,sans-serif"
   return "body{background:${spec.backgroundArgb.toCssHex()};color:${spec.textArgb.toCssHex()};font-family:$font;font-size:${spec.bodyFontSizeSp}px;line-height:${spec.lineHeightMultiplier}}main{max-width:${spec.contentWidthDp}px;margin:0 auto;padding:32px}p{margin:0 0 ${spec.paragraphSpacingDp}px}pre{background:${spec.codeBackgroundArgb.toCssHex()};color:${spec.codeTextArgb.toCssHex()};padding:16px;overflow:auto}code{background:${spec.codeBackgroundArgb.toCssHex()};color:${spec.codeTextArgb.toCssHex()};padding:2px 4px}blockquote{background:${spec.quoteBackgroundArgb.toCssHex()};border-left:4px solid ${spec.tableBorderArgb.toCssHex()};margin:16px 0;padding:8px 16px}table{border-collapse:collapse}th,td{border:1px solid ${spec.tableBorderArgb.toCssHex()};padding:6px 10px}a{color:${spec.linkArgb.toCssHex()}}"

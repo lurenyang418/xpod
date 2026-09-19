@@ -529,7 +529,29 @@ private fun JsonObject.requiredLong(name: String): Long =
     get(name)?.jsonPrimitive?.longOrNull
         ?: throw CloudMemosProtocolException("Cloud Memos response is missing $name")
 
+internal data class CloudMemoNoteDraft(
+    val content: String,
+    val omittedLocalImages: Boolean,
+)
+
 internal object CloudMemoDrafts {
+  fun markdownNote(title: String, content: String): CloudMemoNoteDraft {
+    var omittedLocalImages = false
+    val memoBody =
+        LOCAL_ATTACHMENT_IMAGE.replace(content) { match ->
+          omittedLocalImages = true
+          match.groupValues[1]
+        }
+    val normalizedTitle = title.trim()
+    val memoContent =
+        when {
+          normalizedTitle.isBlank() || firstMarkdownHeading(memoBody) == normalizedTitle -> memoBody
+          memoBody.isBlank() -> "# $normalizedTitle"
+          else -> "# $normalizedTitle\n\n$memoBody"
+        }
+    return CloudMemoNoteDraft(memoContent, omittedLocalImages)
+  }
+
   fun episode(episode: EpisodeEntity, podcastTitle: String?): String = buildString {
     append("## ")
     append(markdownLink(episode.title, episode.audioUrl))
@@ -588,6 +610,9 @@ internal object CloudMemoDrafts {
           '!',
           '|',
       )
+
+  private val LOCAL_ATTACHMENT_IMAGE =
+      Regex("""!\[((?:\\.|[^\]])*)\]\(xpod-attachment://[0-9a-fA-F-]+\.(?:jpg|png|webp|gif)\)""")
 }
 
 private val CloudMemoVisibility.apiValue: String

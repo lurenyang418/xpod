@@ -60,9 +60,11 @@ XPOD 是一款面向 Android 13+ 的本地优先播客与文章阅读器。它�
 ### 本地 Markdown 笔记
 
 - 在独立的“笔记”Tab 中创建和编辑本地 Markdown；即使隐藏或不使用 Cloud Memos，也可以单独使用本地笔记。
-- 支持源码编辑与主题化预览切换，提供 GitHub、Newsprint、Night 和“跟随应用”主题；远程图片只加载 HTTPS 地址。
-- 支持键盘上方 Markdown 工具栏、标题/正文搜索、笔记排序，以及分享 Markdown 文本或文件。
-- 单篇笔记可导出为 UTF-8 Markdown 或带当前主题的 HTML，也可以将全部笔记导出为包含 Markdown 文件和清单的 ZIP。
+- 支持源码编辑与主题化预览切换。每篇笔记会单独记住 GitHub、Newsprint、Night、“跟随应用”或导入的自定义主题；自定义主题可通过经过校验的 JSON 导入/导出（不接受任意 CSS 或脚本），本地最多保存 24 套。可从[主题 JSON 示例](docs/markdown-theme-example.json)开始修改；新笔记默认使用最近选择的主题。Kotlin、Java、Python 代码围栏提供轻量语法高亮，远程图片只加载 HTTPS 地址。
+- 可通过系统图片选择器插入 JPEG、PNG、WebP 或 GIF（单张最大 20 MB）；图片会复制到应用私有目录，全部笔记 ZIP 会打包图片并改写为可移植的相对链接。
+- 支持键盘上方 Markdown 工具栏和有界撤销/重做、标题/正文搜索、笔记排序，以及分享 Markdown 文本或文件。
+- 可通过系统文件选择器导入 `.md` 文件；正文中的 H1 优先作为标题，否则使用文件名。
+- 单篇笔记可导出为 UTF-8 Markdown、主题化 HTML 或分页 PDF，也可以将全部笔记导出为包含 Markdown 文件、图片附件、逐篇主题信息、自定义主题定义和清单的 ZIP。需要连同本地图片或自定义主题迁移时请使用 ZIP；单独导出的 `.md` 不会包含图片文件，HTML/PDF 暂不嵌入本地附件。PDF 中的表格会按文本行呈现，不保留 Markdown 表格的列对齐方式。
 - 笔记只保存在本地 Room 数据库中。应用备份默认关闭，清除应用数据前请先导出 Markdown 或 ZIP。
 
 ### 订阅与组织
@@ -78,6 +80,7 @@ XPOD 是一款面向 Android 13+ 的本地优先播客与文章阅读器。它�
 - 使用具备读写权限的 `cm_pat_` Token 连接 HTTPS [Cloud Memos](https://github.com/lurenyang418/cloud-memos) 实例。
 - 浏览、搜索、筛选、新建、归档、恢复、分享 Memo，并在实例支持时移入回收站。
 - 将播客单集或文章保存为 Markdown Memo。
+- 可在本地笔记编辑器中手动将笔记上传为私有 Memo；这是单向上传，不会同步。当前不上传本地图片，图片会以替代文本保留。
 - 使用 Android Keystore 加密保存 API Token；断开连接时删除已保存的凭据和密钥。
 
 ## 本地优先与隐私

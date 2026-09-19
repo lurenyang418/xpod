@@ -60,9 +60,11 @@ More captured screens and the reproducible showcase-data workflow are available 
 ### Local Markdown notes
 
 - Create and edit local Markdown notes in the independent `Notes` tab; this remains available even when Cloud Memos is hidden or unused.
-- Switch between source editing and themed preview. GitHub, Newsprint, Night, and Follow app themes are supported; remote images are limited to HTTPS URLs.
-- Use the keyboard Markdown toolbar, search title/body text, sort notes, and share either Markdown text or a Markdown file.
-- Export an individual note as UTF-8 Markdown or themed HTML, or export all notes as a ZIP containing Markdown files and a manifest.
+- Switch between source editing and themed preview. Each note remembers its own GitHub, Newsprint, Night, Follow app, or imported custom theme; import/export custom themes as validated JSON (no arbitrary CSS or scripts), with up to 24 custom themes stored locally. [Use this JSON example](docs/markdown-theme-example.json) as a starting point. New notes use the last selected theme, remote images are limited to HTTPS URLs, and fenced Kotlin/Java/Python code gets lightweight syntax highlighting.
+- Insert JPEG, PNG, WebP, or GIF images through the system picker. Selected images (up to 20 MB each) are copied to app-private storage; the notes ZIP export includes these files and rewrites their links for portable Markdown.
+- Use the keyboard Markdown toolbar with bounded undo/redo, search title/body text, sort notes, and share either Markdown text or a Markdown file.
+- Import existing `.md` files with the system document picker; an H1 supplies the title when present, otherwise the filename is used.
+- Export an individual note as UTF-8 Markdown, themed HTML, or paginated PDF, or export all notes as a ZIP containing Markdown files, image attachments, per-note theme metadata, custom theme definitions, and a manifest. Use the ZIP when you need to move notes with local images or custom themes; an individual `.md` export does not bundle image files, and HTML/PDF currently do not embed local attachments. PDF tables are rendered as text rows and do not preserve Markdown column alignment.
 - Notes are stored only in the local Room database. App backup is disabled, so export a Markdown file or ZIP before clearing app data.
 
 ### Subscriptions and organization
@@ -78,6 +80,7 @@ More captured screens and the reproducible showcase-data workflow are available 
 - Connect an HTTPS [Cloud Memos](https://github.com/lurenyang418/cloud-memos) instance with a `cm_pat_` read-write token.
 - Browse, search, filter, create, archive, restore, share, and move supported Memos to the recycle bin.
 - Save podcast episodes or articles as Markdown Memos.
+- Upload a local Markdown note manually from its editor as a private Memo; this is one-way, not sync. Local image attachments are not uploaded and are replaced by their alt text.
 - Store the API token encrypted with Android Keystore; disconnecting removes the stored credential and key.
 
 ## Local-first and privacy

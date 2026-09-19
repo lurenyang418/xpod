@@ -494,4 +494,7 @@ constructor(
 
   fun saveArticleToCloudMemos(article: ArticleEntity, feedTitle: String?) =
       cloudMemosController.saveArticle(article, feedTitle)
+
+  fun saveMarkdownNoteToCloudMemos(title: String, content: String) =
+      cloudMemosController.saveMarkdownNote(title, content)
 }

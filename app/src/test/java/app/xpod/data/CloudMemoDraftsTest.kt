@@ -5,6 +5,42 @@ import org.junit.Test
 
 class CloudMemoDraftsTest {
   @Test
+  fun markdownNoteIncludesSeparateTitleAndPreservesMarkdownBody() {
+    assertEquals(
+        CloudMemoNoteDraft("# Local title\n\n## Section\nBody", omittedLocalImages = false),
+        CloudMemoDrafts.markdownNote(" Local title ", "## Section\nBody"),
+    )
+  }
+
+  @Test
+  fun markdownNoteDoesNotDuplicateMatchingHeading() {
+    assertEquals(
+        CloudMemoNoteDraft("# Local title\n\nBody", omittedLocalImages = false),
+        CloudMemoDrafts.markdownNote("Local title", "# Local title\n\nBody"),
+    )
+  }
+
+  @Test
+  fun markdownNoteReplacesLocalImageWithAltText() {
+    val result =
+        CloudMemoDrafts.markdownNote(
+            "Note",
+            "Before ![photo\\] one](xpod-attachment://01234567-89ab-cdef-0123-456789abcdef.png) after",
+        )
+
+    assertEquals("# Note\n\nBefore photo\\] one after", result.content)
+    assertEquals(true, result.omittedLocalImages)
+  }
+
+  @Test
+  fun markdownNoteLeavesEmptyUntitledContentEmpty() {
+    assertEquals(
+        CloudMemoNoteDraft("", omittedLocalImages = false),
+        CloudMemoDrafts.markdownNote("  ", ""),
+    )
+  }
+
+  @Test
   fun episodeDraftIncludesEscapedLinkSourceAndTags() {
     val episode =
         EpisodeEntity(

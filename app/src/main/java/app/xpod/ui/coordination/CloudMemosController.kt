@@ -86,28 +86,46 @@ internal class CloudMemosController(
   fun saveArticle(article: ArticleEntity, feedTitle: String?) =
       save(CloudMemoDrafts.article(article, feedTitle))
 
-  private fun save(content: String) = scope.launch {
-    if (busy.value) return@launch
-    busy.value = true
-    try {
-      cloudMemos
-          .createMemo(content, CloudMemoVisibility.Private)
-          .fold(
-              { showStatus(context.getString(R.string.cloud_memos_saved), StatusSeverity.Info) },
-              { error ->
-                showStatus(
-                    context.getString(
-                        R.string.cloud_memos_save_failed_reason,
-                        failureReason(error),
-                    ),
-                    StatusSeverity.Error,
-                )
-              },
-          )
-    } finally {
-      busy.value = false
+  fun saveMarkdownNote(title: String, content: String) {
+    val draft = CloudMemoDrafts.markdownNote(title, content)
+    if (draft.content.isBlank()) {
+      showStatus(context.getString(R.string.cloud_memos_note_empty), StatusSeverity.Error)
+      return
     }
+    save(
+        draft.content,
+        successMessage =
+            if (draft.omittedLocalImages) {
+              R.string.cloud_memos_note_saved_without_images
+            } else {
+              R.string.cloud_memos_saved
+            },
+    )
   }
+
+  private fun save(content: String, successMessage: Int = R.string.cloud_memos_saved) =
+      scope.launch {
+        if (busy.value) return@launch
+        busy.value = true
+        try {
+          cloudMemos
+              .createMemo(content, CloudMemoVisibility.Private)
+              .fold(
+                  { showStatus(context.getString(successMessage), StatusSeverity.Info) },
+                  { error ->
+                    showStatus(
+                        context.getString(
+                            R.string.cloud_memos_save_failed_reason,
+                            failureReason(error),
+                        ),
+                        StatusSeverity.Error,
+                    )
+                  },
+              )
+        } finally {
+          busy.value = false
+        }
+      }
 
   private fun failureReason(error: Throwable): String =
       cloudMemosFailureReason(

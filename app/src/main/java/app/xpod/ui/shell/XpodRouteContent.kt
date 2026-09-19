@@ -298,14 +298,28 @@ internal fun XpodRouteContent(
             onTitleChanged = notesViewModel::setTitle,
             onContentChanged = notesViewModel::setContent,
             onThemeChanged = notesViewModel::setTheme,
+            customThemes = ui.notes.customThemes,
+            onCustomThemeSelected = notesViewModel::setCustomTheme,
+            onImportTheme = notesViewModel::importCustomTheme,
+            onExportTheme = notesViewModel::exportCustomTheme,
             onExportMarkdown = {
               notesViewModel.exportMarkdown(requireNotNull(ui.selectedNoteId), it)
             },
             onExportHtml = { uri, theme ->
               notesViewModel.exportHtml(requireNotNull(ui.selectedNoteId), uri, theme)
             },
+            onExportPdf = { uri, theme ->
+              notesViewModel.exportPdf(requireNotNull(ui.selectedNoteId), uri, theme)
+            },
+            cloudMemosBusy = ui.cloudMemos.isBusy,
+            onSaveToCloudMemos = {
+              val editor = requireNotNull(ui.noteEditor)
+              viewModel.saveMarkdownNoteToCloudMemos(editor.title, editor.content)
+            },
             onShareMarkdownText = onShareMarkdownText,
             onShareMarkdownFile = onShareMarkdownFile,
+            onAttachImage = notesViewModel::attachImage,
+            onImageInsertionConsumed = notesViewModel::consumeImageInsertion,
             onFlush = notesViewModel::flushEditor,
             isExporting = ui.notes.isExporting,
             showBackupHint = ui.notes.showBackupHint,
@@ -321,6 +335,7 @@ internal fun XpodRouteContent(
             onOpenNote = viewModel::openNote,
             onDeleteNote = notesViewModel::deleteNote,
             onSortChanged = notesViewModel::setSort,
+            onImportMarkdown = { notesViewModel.importMarkdown(it, viewModel::openNote) },
             onExportZip = notesViewModel::exportZip,
         )
     else ->

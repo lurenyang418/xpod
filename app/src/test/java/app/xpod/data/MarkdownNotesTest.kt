@@ -1,5 +1,7 @@
 package app.xpod.data
 
+import java.io.ByteArrayInputStream
+import java.nio.charset.StandardCharsets
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -28,8 +30,51 @@ class MarkdownNotesTest {
   }
 
   @Test
+  fun markdownImportPrefersH1AndPreservesSourceContent() {
+    val source = "\uFEFFIntro\r\n# Imported title\r\nBody"
+    val content =
+        readMarkdownImportContent(ByteArrayInputStream(source.toByteArray(StandardCharsets.UTF_8)))
+    val imported = markdownNoteFromImport("filename.md", content, 123L, "Untitled note")
+
+    assertEquals("Imported title", imported.title)
+    assertEquals("Intro\r\n# Imported title\r\nBody", imported.content)
+    assertEquals(123L, imported.createdEpochMs)
+    assertEquals(123L, imported.modifiedEpochMs)
+  }
+
+  @Test
+  fun markdownImportUsesFilenameWhenThereIsNoH1() {
+    val imported = markdownNoteFromImport("  My notes.md  ", "## Section", 456L, "Untitled note")
+
+    assertEquals("My notes", imported.title)
+    assertEquals("## Section", imported.content)
+  }
+
+  @Test
+  fun markdownImportRejectsUnsupportedFilesAndOversizedContent() {
+    try {
+      markdownNoteFromImport("notes.txt", "content", 1L, "Untitled note")
+      throw AssertionError("Expected a non-Markdown file to be rejected")
+    } catch (_: UnsupportedMarkdownImportException) {
+      // Expected.
+    }
+
+    try {
+      readMarkdownImportContent(
+          ByteArrayInputStream(
+              "x".repeat(MAX_MARKDOWN_NOTE_CONTENT_LENGTH + 1).toByteArray(StandardCharsets.UTF_8)
+          )
+      )
+      throw AssertionError("Expected oversized Markdown content to be rejected")
+    } catch (_: MarkdownImportTooLargeException) {
+      // Expected.
+    }
+  }
+
+  @Test
   fun followAppThemeFallsBackToGithubAndUnknownStoredThemeIsSafe() {
     assertEquals(MarkdownThemeMode.GitHub, markdownThemeSpec(MarkdownThemeMode.FollowApp).mode)
+    assertEquals(MarkdownThemeMode.Night, parseMarkdownThemeMode("Night"))
     assertEquals(MarkdownThemeMode.FollowApp, parseMarkdownThemeMode("not-a-theme"))
   }
 
@@ -42,6 +87,32 @@ class MarkdownNotesTest {
   fun exportBaseNameRemovesUnsafePathCharacters() {
     assertEquals("a_b_c_", safeExportBaseName("a/b:c?", 1))
     assertEquals("note-2", safeExportBaseName("...", 2))
+  }
+
+  @Test
+  fun archiveBaseNamesAvoidSanitizedAndCaseInsensitiveCollisions() {
+    val usedNames = mutableSetOf<String>()
+    assertEquals("a_b", uniqueArchiveBaseName("a/b", 1, usedNames))
+    assertEquals("a_b (2)", uniqueArchiveBaseName("a_b", 2, usedNames))
+    assertEquals("a_b (2) (2)", uniqueArchiveBaseName("a_b (2)", 3, usedNames))
+    assertEquals("A_B (3)", uniqueArchiveBaseName("A/B", 4, usedNames))
+  }
+
+  @Test
+  fun localAttachmentReferencesAreStrictAndCanBeRewrittenForZipExport() {
+    val fileName = "01234567-89ab-cdef-0123-456789abcdef.png"
+    val reference = requireNotNull(markdownAttachmentReference(fileName))
+    assertEquals(fileName, markdownAttachmentFileName(reference))
+    assertNull(markdownAttachmentFileName("xpod-attachment://../$fileName"))
+    assertNull(markdownAttachmentReference("../$fileName"))
+
+    assertEquals(
+        "![image](attachments/note/image.png)",
+        rewriteMarkdownAttachmentReferences(
+            "![image]($reference)",
+            mapOf(reference to "attachments/note/image.png"),
+        ),
+    )
   }
 
   @Test
@@ -84,6 +155,26 @@ class MarkdownNotesTest {
             "Untitled note",
         )
     assertTrue(safeHtml.contains("https://example.com/image.png"))
+  }
+
+  @Test
+  fun htmlExportUsesCustomThemeSpecColorsAndTypography() {
+    val spec =
+        markdownThemeSpec(MarkdownThemeMode.Night)
+            .copy(
+                mode = MarkdownThemeMode.Custom,
+                backgroundArgb = 0xFF102030,
+                textArgb = 0xFFE8EDF2,
+                linkArgb = 0xFF9BD1FF,
+                bodyFontSizeSp = 19f,
+            )
+
+    val html = markdownHtmlDocument(note(title = "Theme", content = "Body"), spec, "Untitled")
+
+    assertTrue(html.contains("background:#102030"))
+    assertTrue(html.contains("color:#e8edf2"))
+    assertTrue(html.contains("font-size:19.0px"))
+    assertTrue(html.contains("a{color:#9bd1ff}"))
   }
 
   private fun note(title: String, content: String) =
