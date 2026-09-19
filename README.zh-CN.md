@@ -4,7 +4,7 @@
 
 XPOD 是一款面向 Android 13+ 的本地优先播客与文章阅读器。它将播客 RSS、文章 RSS/Atom、离线播放、原生文章阅读以及本地音乐和视频库整合在同一个 Jetpack Compose 应用中。媒体库可以使用平台级扫描，也可以通过 Android 存储访问框架选择文件夹进行限制访问。
 
-当前版本：**0.9.9** · Android **13+** · **arm64-v8a** · [Apache-2.0](LICENSE)
+当前版本：**0.10.0** · Android **13+** · **arm64-v8a** · [Apache-2.0](LICENSE)
 
 ## 截图
 
@@ -94,10 +94,10 @@ Cloud Memos 完全可选，也不是 XPOD 本地数据库的通用跨设备同�
 ## 环境要求
 
 - JDK 17
-- Android SDK Platform 36.1
+- Android SDK Platform 37
 - 用于安装的 Android 13+ ARM64 真机或模拟器
 
-仓库已包含 Gradle 9.6.1 Wrapper，无需单独安装 Gradle。
+仓库已包含 Gradle 9.7.1 Wrapper，无需单独安装 Gradle。
 
 ## 构建与安装
 
