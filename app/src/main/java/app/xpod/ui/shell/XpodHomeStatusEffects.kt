@@ -18,6 +18,8 @@ internal fun XpodHomeStatusEffects(
     onDismissVideoStatus: () -> Unit,
     booksStatus: UiStatus?,
     onDismissBooksStatus: () -> Unit,
+    notesStatus: UiStatus?,
+    onDismissNotesStatus: () -> Unit,
 ) {
   LaunchedEffect(mainStatus) {
     mainStatus?.let {
@@ -47,6 +49,12 @@ internal fun XpodHomeStatusEffects(
     booksStatus?.let {
       snackbar.showXpodSnackbar(it)
       onDismissBooksStatus()
+    }
+  }
+  LaunchedEffect(notesStatus) {
+    notesStatus?.let {
+      snackbar.showXpodSnackbar(it)
+      onDismissNotesStatus()
     }
   }
 }

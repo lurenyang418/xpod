@@ -30,7 +30,7 @@ class SettingsScreenTest {
   @get:Rule val compose = createComposeRule()
 
   @Test
-  fun tabManagerShowsOnlyTheSixCurrentTabsAndForwardsToggle() {
+  fun tabManagerShowsCurrentTabsAndForwardsToggle() {
     val context = InstrumentationRegistry.getInstrumentation().targetContext
     var toggled: Pair<AppTab, Boolean>? = null
 
@@ -52,6 +52,7 @@ class SettingsScreenTest {
             add = { _, _ -> },
             importOpml = {},
             exportOpml = {},
+            exportNotesZip = {},
             configureCloudMemos = { _, _, _ -> },
             disconnectCloudMemos = {},
             openReleases = {},

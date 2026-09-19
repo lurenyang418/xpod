@@ -228,6 +228,16 @@ constructor(
     dispatchNavigation(NavigationAction.OpenBook(id))
   }
 
+  fun openNote(id: Long) {
+    dispatchNavigation(NavigationAction.OpenNote(id))
+  }
+
+  fun clearNoteSelection(id: Long) {
+    if (_navigation.value.selectedNoteId == id) {
+      dispatchNavigation(NavigationAction.ClearNoteSelection)
+    }
+  }
+
   fun openFullPlayer() {
     dispatchNavigation(NavigationAction.OpenFullPlayer)
   }

@@ -13,6 +13,7 @@ internal enum class AppRoute(val key: String) {
   Music("music"),
   Video("video"),
   Memos("memos"),
+  Notes("notes"),
   Books("books"),
   Settings("settings"),
 }
@@ -33,6 +34,7 @@ internal data class MainNavigationState(
     val selectedEpisodeId: String? = null,
     val selectedArticleId: String? = null,
     val selectedBookId: String? = null,
+    val selectedNoteId: Long? = null,
     val fullPlayer: Boolean = false,
 )
 
@@ -49,6 +51,8 @@ internal sealed interface NavigationAction {
 
   data class OpenBook(val id: String) : NavigationAction
 
+  data class OpenNote(val id: Long) : NavigationAction
+
   data object OpenFullPlayer : NavigationAction
 
   data object CloseFullPlayer : NavigationAction
@@ -56,6 +60,8 @@ internal sealed interface NavigationAction {
   data object ClearEpisodeSelection : NavigationAction
 
   data object ClearPodcastSelection : NavigationAction
+
+  data object ClearNoteSelection : NavigationAction
 
   data object NavigateBack : NavigationAction
 }
@@ -72,6 +78,7 @@ internal fun reduceNavigation(
               selectedEpisodeId = null,
               selectedArticleId = null,
               selectedBookId = null,
+              selectedNoteId = null,
               fullPlayer = false,
           )
       is NavigationAction.SelectPodcastSubView ->
@@ -89,30 +96,45 @@ internal fun reduceNavigation(
               selectedEpisodeId = action.id,
               selectedArticleId = null,
               selectedBookId = null,
+              selectedNoteId = null,
           )
       is NavigationAction.OpenArticle ->
           state.copy(
               selectedEpisodeId = null,
               selectedArticleId = action.id,
               selectedBookId = null,
+              selectedNoteId = null,
           )
       is NavigationAction.OpenBook ->
           state.copy(
               selectedEpisodeId = null,
               selectedArticleId = null,
               selectedBookId = action.id,
+              selectedNoteId = null,
+          )
+      is NavigationAction.OpenNote ->
+          state.copy(
+              destination = AppRoute.Notes,
+              selectedEpisodeId = null,
+              selectedArticleId = null,
+              selectedBookId = null,
+              selectedNoteId = action.id,
+              fullPlayer = false,
           )
       NavigationAction.OpenFullPlayer -> state.copy(fullPlayer = true)
       NavigationAction.CloseFullPlayer -> state.copy(fullPlayer = false)
       NavigationAction.ClearEpisodeSelection -> state.copy(selectedEpisodeId = null)
       NavigationAction.ClearPodcastSelection ->
           state.copy(podcast = state.podcast.copy(selectedPodcastId = null))
+      NavigationAction.ClearNoteSelection -> state.copy(selectedNoteId = null)
       NavigationAction.NavigateBack ->
           when {
             state.fullPlayer -> state.copy(fullPlayer = false)
             state.selectedEpisodeId != null -> state.copy(selectedEpisodeId = null)
             state.selectedArticleId != null -> state.copy(selectedArticleId = null)
             state.selectedBookId != null -> state.copy(selectedBookId = null)
+            state.destination == AppRoute.Notes && state.selectedNoteId != null ->
+                state.copy(selectedNoteId = null)
             state.destination == AppRoute.Podcasts && state.podcast.selectedPodcastId != null ->
                 state.copy(podcast = state.podcast.copy(selectedPodcastId = null))
             else -> state
@@ -126,6 +148,7 @@ private fun openPodcast(state: MainNavigationState, id: String): MainNavigationS
         selectedEpisodeId = null,
         selectedArticleId = null,
         selectedBookId = null,
+        selectedNoteId = null,
         fullPlayer = false,
     )
 
@@ -136,6 +159,7 @@ internal fun AppTab.toAppRoute(): AppRoute =
       AppTab.Music -> AppRoute.Music
       AppTab.Video -> AppRoute.Video
       AppTab.Memos -> AppRoute.Memos
+      AppTab.Notes -> AppRoute.Notes
       AppTab.Books -> AppRoute.Books
       AppTab.Settings -> AppRoute.Settings
     }

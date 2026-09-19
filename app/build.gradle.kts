@@ -114,6 +114,7 @@ dependencies {
   implementation(libs.markdown.renderer)
   implementation(libs.markdown.renderer.m3)
   implementation(libs.markdown.renderer.coil3)
+  implementation(libs.jetbrains.markdown)
   debugImplementation(libs.androidx.compose.ui.tooling)
   debugImplementation(libs.androidx.compose.ui.test.manifest)
   testImplementation(libs.junit)

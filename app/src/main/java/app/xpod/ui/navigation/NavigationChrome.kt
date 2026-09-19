@@ -5,6 +5,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.Notes
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Settings
@@ -65,6 +66,7 @@ internal fun DestinationIcon(destination: AppRoute) =
       AppRoute.Music -> Icon(Icons.Filled.MusicNote, null)
       AppRoute.Video -> Icon(Icons.Filled.VideoLibrary, null)
       AppRoute.Memos -> Icon(Icons.AutoMirrored.Filled.Notes, null)
+      AppRoute.Notes -> Icon(Icons.Filled.Description, null)
       AppRoute.Books -> Icon(Icons.AutoMirrored.Filled.MenuBook, null)
       AppRoute.Settings -> Icon(Icons.Filled.Settings, null)
     }
@@ -76,6 +78,7 @@ internal fun destinationLabelResource(destination: AppRoute): Int =
       AppRoute.Music -> R.string.local_music
       AppRoute.Video -> R.string.local_video
       AppRoute.Memos -> R.string.memos
+      AppRoute.Notes -> R.string.notes
       AppRoute.Books -> R.string.books
       AppRoute.Settings -> R.string.settings
     }

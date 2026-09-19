@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.AddLink
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
@@ -78,6 +79,7 @@ internal fun SettingsScreen(
     add: (String, (Boolean) -> Unit) -> Unit,
     importOpml: (Uri) -> Unit,
     exportOpml: (Uri) -> Unit,
+    exportNotesZip: (Uri) -> Unit,
     configureCloudMemos: (String, String, () -> Unit) -> Unit,
     disconnectCloudMemos: () -> Unit,
     openReleases: () -> Unit,
@@ -106,6 +108,10 @@ internal fun SettingsScreen(
           ActivityResultContracts.CreateDocument("application/x-opml")
       ) {
         it?.let(exportOpml)
+      }
+  val notesZipExporter =
+      rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) {
+        it?.let(exportNotesZip)
       }
 
   LazyColumn(
@@ -199,6 +205,18 @@ internal fun SettingsScreen(
             icon = Icons.AutoMirrored.Filled.QueueMusic,
             onClick = showQueue,
         )
+      }
+    }
+    item {
+      SettingsCard(stringResource(R.string.notes_backup), Icons.Filled.Description) {
+        Text(
+            stringResource(R.string.notes_backup_summary),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        FilledTonalButton(onClick = { notesZipExporter.launch("xpod-notes.zip") }) {
+          Text(stringResource(R.string.export_notes_zip))
+        }
       }
     }
     item {
@@ -396,6 +414,7 @@ internal fun tabLabel(tab: AppTab): String =
           AppTab.Music -> R.string.local_music
           AppTab.Video -> R.string.local_video
           AppTab.Memos -> R.string.memos
+          AppTab.Notes -> R.string.notes
           AppTab.Books -> R.string.books
           AppTab.Settings -> R.string.settings
         }

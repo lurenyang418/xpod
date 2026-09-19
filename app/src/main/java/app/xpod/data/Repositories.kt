@@ -93,6 +93,7 @@ enum class AppTab {
   Music,
   Video,
   Memos,
+  Notes,
   Books,
   Settings,
 }
@@ -104,6 +105,7 @@ internal val defaultTabOrder =
         AppTab.Music,
         AppTab.Video,
         AppTab.Memos,
+        AppTab.Notes,
         AppTab.Books,
         AppTab.Settings,
     )
@@ -413,6 +415,8 @@ constructor(@param:ApplicationContext private val context: Context) {
   private val localBooksTreeUriKey = stringPreferencesKey("local_books_tree_uri")
   private val musicShuffleEnabledKey = booleanPreferencesKey("music_shuffle_enabled")
   private val musicRepeatModeKey = stringPreferencesKey("music_repeat_mode")
+  private val markdownThemeKey = stringPreferencesKey("markdown_theme")
+  private val notesBackupHintShownKey = booleanPreferencesKey("notes_backup_hint_shown")
   val useDynamicColor: Flow<Boolean> = context.settingsStore.data.map { it[dynamicColor] ?: true }
   val defaultSpeed: Flow<Float> = context.settingsStore.data.map { it[speed] ?: 1f }
   val appTheme: Flow<ThemeMode> =
@@ -441,6 +445,12 @@ constructor(@param:ApplicationContext private val context: Context) {
             repeatMode = parseMusicRepeatMode(preferences[musicRepeatModeKey]),
         )
       }
+  val markdownTheme: Flow<MarkdownThemeMode> =
+      context.settingsStore.data.map { preferences ->
+        parseMarkdownThemeMode(preferences[markdownThemeKey])
+      }
+  val notesBackupHintShown: Flow<Boolean> =
+      context.settingsStore.data.map { it[notesBackupHintShownKey] ?: false }
 
   suspend fun setDynamicColor(enabled: Boolean) {
     context.settingsStore.edit { it[dynamicColor] = enabled }
@@ -456,6 +466,14 @@ constructor(@param:ApplicationContext private val context: Context) {
 
   suspend fun setWifiOnlyDownloads(enabled: Boolean) {
     context.settingsStore.edit { it[wifiOnlyDownloads] = enabled }
+  }
+
+  suspend fun setMarkdownTheme(value: MarkdownThemeMode) {
+    context.settingsStore.edit { it[markdownThemeKey] = value.name }
+  }
+
+  suspend fun markNotesBackupHintShown() {
+    context.settingsStore.edit { it[notesBackupHintShownKey] = true }
   }
 
   suspend fun setLocalMusicTreeUri(value: String?) {

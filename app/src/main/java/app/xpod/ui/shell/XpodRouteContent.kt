@@ -28,6 +28,12 @@ import app.xpod.ui.music.MusicUiState
 import app.xpod.ui.music.MusicViewModel
 import app.xpod.ui.navigation.AppRoute
 import app.xpod.ui.navigation.PodcastSubView
+import app.xpod.ui.notes.NoteEditorScreen
+import app.xpod.ui.notes.NoteEditorUiState
+import app.xpod.ui.notes.NotesLoadingScreen
+import app.xpod.ui.notes.NotesScreen
+import app.xpod.ui.notes.NotesUiState
+import app.xpod.ui.notes.NotesViewModel
 import app.xpod.ui.player.FullPlayerScreen
 import app.xpod.ui.podcasts.EpisodeDetailScreen
 import app.xpod.ui.podcasts.PodcastHubActions
@@ -52,6 +58,8 @@ internal data class XpodRouteUiState(
     val memos: MemosUiState,
     val memosConnection: CloudMemosConnection,
     val memosReloadToken: Int,
+    val notes: NotesUiState,
+    val noteEditor: NoteEditorUiState?,
     val music: MusicUiState,
     val video: VideoUiState,
     val books: BooksUiState,
@@ -63,9 +71,16 @@ internal data class XpodRouteUiState(
     val selectedEpisode: EpisodeEntity?,
     val selectedArticle: ArticleEntity?,
     val selectedBookId: String?,
+    val selectedNoteId: Long?,
     val fullPlayer: Boolean,
     val visibleRoutes: List<AppRoute>,
 )
+
+internal fun hasSelectedNoteEditor(selectedNoteId: Long?, editor: NoteEditorUiState?): Boolean =
+    selectedNoteId != null && editor?.id == selectedNoteId
+
+internal fun shouldShowNotesLoading(selectedNoteId: Long?, editor: NoteEditorUiState?): Boolean =
+    selectedNoteId != null && !hasSelectedNoteEditor(selectedNoteId, editor)
 
 /** Renders the active route while keeping route-specific UI wiring out of the app shell. */
 @Composable
@@ -76,6 +91,7 @@ internal fun XpodRouteContent(
     musicViewModel: MusicViewModel,
     videoViewModel: VideoViewModel,
     booksViewModel: BooksViewModel,
+    notesViewModel: NotesViewModel,
     podcastHubActions: PodcastHubActions,
     playEpisode: (EpisodeEntity) -> Unit,
     handleDownload: (EpisodeEntity) -> Unit,
@@ -99,6 +115,8 @@ internal fun XpodRouteContent(
     memosListActions: MemosListActions,
     memosShareActions: MemosShareActions,
     memosManageActions: MemosManageActions,
+    onShareMarkdownText: () -> Unit,
+    onShareMarkdownFile: () -> Unit,
     theme: ThemeMode,
     dynamic: Boolean,
     wifiOnlyDownloads: Boolean,
@@ -272,6 +290,39 @@ internal fun XpodRouteContent(
             shareActions = memosShareActions,
             manageActions = memosManageActions,
         )
+    ui.destination == AppRoute.Notes && hasSelectedNoteEditor(ui.selectedNoteId, ui.noteEditor) ->
+        NoteEditorScreen(
+            editor = requireNotNull(ui.noteEditor),
+            appTheme = theme,
+            onBack = viewModel::navigateBack,
+            onTitleChanged = notesViewModel::setTitle,
+            onContentChanged = notesViewModel::setContent,
+            onThemeChanged = notesViewModel::setTheme,
+            onExportMarkdown = {
+              notesViewModel.exportMarkdown(requireNotNull(ui.selectedNoteId), it)
+            },
+            onExportHtml = { uri, theme ->
+              notesViewModel.exportHtml(requireNotNull(ui.selectedNoteId), uri, theme)
+            },
+            onShareMarkdownText = onShareMarkdownText,
+            onShareMarkdownFile = onShareMarkdownFile,
+            onFlush = notesViewModel::flushEditor,
+            isExporting = ui.notes.isExporting,
+            showBackupHint = ui.notes.showBackupHint,
+            onDismissBackupHint = notesViewModel::dismissBackupHint,
+        )
+    ui.destination == AppRoute.Notes && shouldShowNotesLoading(ui.selectedNoteId, ui.noteEditor) ->
+        NotesLoadingScreen()
+    ui.destination == AppRoute.Notes ->
+        NotesScreen(
+            state = ui.notes,
+            onQueryChanged = notesViewModel::setQuery,
+            onCreate = { notesViewModel.createNote(viewModel::openNote) },
+            onOpenNote = viewModel::openNote,
+            onDeleteNote = notesViewModel::deleteNote,
+            onSortChanged = notesViewModel::setSort,
+            onExportZip = notesViewModel::exportZip,
+        )
     else ->
         SettingsScreen(
             theme = theme,
@@ -289,6 +340,7 @@ internal fun XpodRouteContent(
             add = { url, onComplete -> viewModel.addFeed(url, onComplete) },
             importOpml = viewModel::importOpml,
             exportOpml = viewModel::exportOpml,
+            exportNotesZip = notesViewModel::exportZip,
             configureCloudMemos = viewModel::configureCloudMemos,
             disconnectCloudMemos = viewModel::disconnectCloudMemos,
             openReleases = onOpenReleases,

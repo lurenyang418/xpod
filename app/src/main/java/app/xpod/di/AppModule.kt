@@ -33,6 +33,7 @@ object AppModule {
               XpodDatabaseMigrations.MIGRATION_4_5,
               XpodDatabaseMigrations.MIGRATION_5_6,
               XpodDatabaseMigrations.MIGRATION_6_7,
+              XpodDatabaseMigrations.MIGRATION_7_8,
           )
           .build()
 

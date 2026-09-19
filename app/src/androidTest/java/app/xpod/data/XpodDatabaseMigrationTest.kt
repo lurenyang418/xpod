@@ -243,6 +243,64 @@ class XpodDatabaseMigrationTest {
         }
   }
 
+  @Test
+  fun migrate7To8CreatesMarkdownNotesAndSearchTriggers() {
+    helper.createDatabase(TEST_DATABASE, 7).close()
+
+    helper
+        .runMigrationsAndValidate(
+            TEST_DATABASE,
+            8,
+            true,
+            XpodDatabaseMigrations.MIGRATION_7_8,
+        )
+        .use { database ->
+          database.execSQL(
+              "INSERT INTO LocalMarkdownNoteEntity (title, content, createdEpochMs, modifiedEpochMs) VALUES ('Title', 'body text', 1, 2)"
+          )
+          database
+              .query(
+                  "SELECT title, content FROM LocalMarkdownNoteSearch WHERE LocalMarkdownNoteSearch MATCH 'body'"
+              )
+              .use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("Title", cursor.getString(cursor.getColumnIndexOrThrow("title")))
+              }
+
+          database.execSQL(
+              "UPDATE LocalMarkdownNoteEntity SET title = 'Renamed', content = 'updated text' WHERE id = 1"
+          )
+          database
+              .query(
+                  "SELECT title FROM LocalMarkdownNoteSearch WHERE LocalMarkdownNoteSearch MATCH 'updated'"
+              )
+              .use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("Renamed", cursor.getString(cursor.getColumnIndexOrThrow("title")))
+              }
+
+          database.execSQL("DELETE FROM LocalMarkdownNoteEntity WHERE id = 1")
+          database
+              .query(
+                  "SELECT COUNT(*) FROM LocalMarkdownNoteSearch WHERE LocalMarkdownNoteSearch MATCH 'updated'"
+              )
+              .use { cursor ->
+                cursor.moveToFirst()
+                assertEquals(0, cursor.getInt(0))
+              }
+
+          val indexes = mutableSetOf<String>()
+          database
+              .query(
+                  "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'LocalMarkdownNoteEntity'"
+              )
+              .use { cursor ->
+                while (cursor.moveToNext()) indexes += cursor.getString(0)
+              }
+          assertTrue(indexes.contains("index_LocalMarkdownNoteEntity_modifiedEpochMs"))
+        }
+  }
+
   private companion object {
     const val TEST_DATABASE = "xpod-migration-test"
   }

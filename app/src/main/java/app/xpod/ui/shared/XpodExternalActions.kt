@@ -36,6 +36,27 @@ internal fun shareText(context: Context, text: String, chooserTitle: String): Bo
       false
     }
 
+internal fun shareFile(
+    context: Context,
+    uri: android.net.Uri,
+    mimeType: String,
+    chooserTitle: String,
+): Boolean =
+    try {
+      val intent =
+          Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+          }
+      context.startActivity(Intent.createChooser(intent, chooserTitle))
+      true
+    } catch (_: ActivityNotFoundException) {
+      false
+    } catch (_: SecurityException) {
+      false
+    }
+
 internal fun openExternalUrl(context: Context, url: String): Boolean =
     try {
       context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))

@@ -21,7 +21,7 @@ class NavigationChromeTest {
   @get:Rule val compose = createComposeRule()
 
   @Test
-  fun bottomNavigationRendersSixMappedRoutesWithoutLibrary() {
+  fun bottomNavigationRendersMappedRoutesWithoutLibrary() {
     val context = InstrumentationRegistry.getInstrumentation().targetContext
     val routes =
         listOf(
@@ -29,6 +29,7 @@ class NavigationChromeTest {
             AppRoute.Reader,
             AppRoute.Music,
             AppRoute.Memos,
+            AppRoute.Notes,
             AppRoute.Books,
             AppRoute.Settings,
         )

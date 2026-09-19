@@ -48,6 +48,7 @@ import app.xpod.ui.memos.MemosViewModel
 import app.xpod.ui.music.MusicViewModel
 import app.xpod.ui.navigation.AppRoute
 import app.xpod.ui.navigation.toAppRoutes
+import app.xpod.ui.notes.NotesViewModel
 import app.xpod.ui.player.MiniPlaybackSummary
 import app.xpod.ui.player.buildPictureInPictureParams
 import app.xpod.ui.podcasts.PodcastHubActions
@@ -56,6 +57,7 @@ import app.xpod.ui.shared.StatusSeverity
 import app.xpod.ui.shared.XPOD_RELEASES_URL
 import app.xpod.ui.shared.copyMemoMarkdown
 import app.xpod.ui.shared.openExternalUrl
+import app.xpod.ui.shared.shareFile
 import app.xpod.ui.shared.shareText
 import app.xpod.ui.video.VideoViewModel
 import kotlinx.coroutines.flow.collect
@@ -124,6 +126,9 @@ internal fun XpodHome(
   val booksViewModel: BooksViewModel = hiltViewModel()
   val books by booksViewModel.state.collectAsStateWithLifecycle()
   val booksStatus by booksViewModel.status.collectAsStateWithLifecycle()
+  val notesViewModel: NotesViewModel = hiltViewModel()
+  val notes by notesViewModel.state.collectAsStateWithLifecycle()
+  val noteEditor by notesViewModel.editorState.collectAsStateWithLifecycle()
   val bulkActions by viewModel.bulkActionsState.collectAsStateWithLifecycle()
   val tabOrder by settingsViewModel.tabOrder.collectAsStateWithLifecycle()
   val enabledTabs by settingsViewModel.enabledTabs.collectAsStateWithLifecycle()
@@ -144,6 +149,7 @@ internal fun XpodHome(
   val selectedEpisodeId = navigation.selectedEpisodeId
   val selectedArticleId = navigation.selectedArticleId
   val selectedBookId = navigation.selectedBookId
+  val selectedNoteId = navigation.selectedNoteId
   val fullPlayer = navigation.fullPlayer
   val pictureInPictureVideo = video.videos.firstOrNull { it.id == video.playerVideoId }
   val pictureInPictureEnabled = video.playerVideoId != null && video.player.isPlaying
@@ -315,6 +321,11 @@ internal fun XpodHome(
       memosViewModel.dismissMemoDelete()
     }
   }
+  LaunchedEffect(selectedNoteId) {
+    if (selectedNoteId != null) {
+      notesViewModel.openNote(selectedNoteId) { viewModel.clearNoteSelection(selectedNoteId) }
+    } else notesViewModel.closeEditor()
+  }
   LaunchedEffect(nowPlaying == null) {
     if (nowPlaying == null) {
       viewModel.closeFullPlayer()
@@ -441,6 +452,8 @@ internal fun XpodHome(
       onDismissVideoStatus = videoViewModel::dismissStatus,
       booksStatus = booksStatus,
       onDismissBooksStatus = booksViewModel::dismissStatus,
+      notesStatus = notes.status,
+      onDismissNotesStatus = notesViewModel::dismissStatus,
   )
   LaunchedEffect(destination) {
     when (destination) {
@@ -530,6 +543,7 @@ internal fun XpodHome(
               selectedEpisode != null ||
               selectedArticleId != null ||
               selectedBookId != null ||
+              selectedNoteId != null ||
               destination == AppRoute.Podcasts && selectedPodcastId != null,
       onBack = back,
   )
@@ -540,6 +554,7 @@ internal fun XpodHome(
         selectedEpisode != null -> "episode"
         selectedArticleId != null -> "article"
         selectedBookId != null -> "book"
+        selectedNoteId != null -> "note:$selectedNoteId"
         else -> "tab:${destination.name}"
       }
   val saveableStateHolder = rememberSaveableStateHolder()
@@ -568,6 +583,9 @@ internal fun XpodHome(
                 selectedEpisode = selectedEpisode,
                 selectedArticle = selectedArticle,
                 selectedBookId = selectedBookId,
+                selectedNoteId = selectedNoteId,
+                notes = notes,
+                noteEditor = noteEditor,
                 fullPlayer = fullPlayer,
                 visibleRoutes = visibleRoutes,
             ),
@@ -576,6 +594,7 @@ internal fun XpodHome(
         musicViewModel = musicViewModel,
         videoViewModel = videoViewModel,
         booksViewModel = booksViewModel,
+        notesViewModel = notesViewModel,
         podcastHubActions = podcastHubActions,
         playEpisode = playEpisode,
         handleDownload = handleDownload,
@@ -608,6 +627,41 @@ internal fun XpodHome(
         memosListActions = memosListActions,
         memosShareActions = memosShareActions,
         memosManageActions = memosManageActions,
+        onShareMarkdownText = {
+          selectedNoteId?.let { noteId ->
+            notesViewModel.shareMarkdownText(noteId) { markdown ->
+              if (!shareText(context, markdown, resources.getString(R.string.share_note))) {
+                coroutineScope.launch {
+                  snackbar.showXpodSnackbar(
+                      resources.getString(R.string.share_note_unavailable),
+                      StatusSeverity.Error,
+                  )
+                }
+              }
+            }
+          }
+        },
+        onShareMarkdownFile = {
+          selectedNoteId?.let { noteId ->
+            notesViewModel.prepareMarkdownShareFile(noteId) { uri ->
+              if (
+                  !shareFile(
+                      context,
+                      uri,
+                      "text/markdown",
+                      resources.getString(R.string.share_note),
+                  )
+              ) {
+                coroutineScope.launch {
+                  snackbar.showXpodSnackbar(
+                      resources.getString(R.string.share_note_unavailable),
+                      StatusSeverity.Error,
+                  )
+                }
+              }
+            }
+          }
+        },
         theme = theme,
         dynamic = dynamic,
         wifiOnlyDownloads = wifiOnlyDownloads,
@@ -637,7 +691,8 @@ internal fun XpodHome(
               !fullPlayer &&
               video.playerVideoId == null &&
               selectedArticleId == null &&
-              selectedBookId == null,
+              selectedBookId == null &&
+              selectedNoteId == null,
       summary = miniSummary,
       destination = destination,
       routes = visibleRoutes,
@@ -651,6 +706,7 @@ internal fun XpodHome(
           wide &&
               selectedArticleId == null &&
               selectedBookId == null &&
+              selectedNoteId == null &&
               !fullPlayer &&
               video.playerVideoId == null,
       immersiveContent = video.playerVideoId != null,

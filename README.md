@@ -57,6 +57,14 @@ More captured screens and the reproducible showcase-data workflow are available 
 - Read PDF files with on-demand system `PdfRenderer` pages, zoom, and bounded bitmap caching.
 - Keep reading positions, favorites, and the selected folder on device; original book files stay in place.
 
+### Local Markdown notes
+
+- Create and edit local Markdown notes in the independent `Notes` tab; this remains available even when Cloud Memos is hidden or unused.
+- Switch between source editing and themed preview. GitHub, Newsprint, Night, and Follow app themes are supported; remote images are limited to HTTPS URLs.
+- Use the keyboard Markdown toolbar, search title/body text, sort notes, and share either Markdown text or a Markdown file.
+- Export an individual note as UTF-8 Markdown or themed HTML, or export all notes as a ZIP containing Markdown files and a manifest.
+- Notes are stored only in the local Room database. App backup is disabled, so export a Markdown file or ZIP before clearing app data.
+
 ### Subscriptions and organization
 
 - Import and export mixed podcast and article subscriptions as OPML.
@@ -74,7 +82,7 @@ More captured screens and the reproducible showcase-data workflow are available 
 
 ## Local-first and privacy
 
-XPOD does not require an XPOD account. Podcast, episode, article, playback, queue, preference, and local media index data are stored on the device with Room or DataStore. App backup is disabled.
+XPOD does not require an XPOD account. Podcast, episode, article, playback, queue, preference, local media index, and Markdown note data are stored on the device with Room or DataStore. App backup is disabled; local Markdown notes should be exported before clearing app data.
 
 Network access is used only for actions that inherently need it: retrieving feeds and artwork, streaming or downloading media, opening original pages, and communicating with a Cloud Memos instance configured by the user. Downloads stay in app-specific storage. Music library scanning uses Android's `READ_MEDIA_AUDIO` permission, and automatic video scanning uses `READ_MEDIA_VIDEO` to query Android's MediaStore index. Users can instead choose a folder through the system picker for limited video access.
 

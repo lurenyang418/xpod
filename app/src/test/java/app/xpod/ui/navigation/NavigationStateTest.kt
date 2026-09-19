@@ -53,13 +53,15 @@ class NavigationStateTest {
   }
 
   @Test
-  fun removedLibraryTabHasNoRuntimeRoute() {
+  fun allTabsMapToTheirRuntimeRoutes() {
     assertEquals(
         listOf(
             AppRoute.Podcasts,
             AppRoute.Reader,
             AppRoute.Music,
+            AppRoute.Video,
             AppRoute.Memos,
+            AppRoute.Notes,
             AppRoute.Books,
             AppRoute.Settings,
         ),
@@ -67,7 +69,9 @@ class NavigationStateTest {
                 AppTab.Podcasts,
                 AppTab.Reader,
                 AppTab.Music,
+                AppTab.Video,
                 AppTab.Memos,
+                AppTab.Notes,
                 AppTab.Books,
                 AppTab.Settings,
             )
@@ -146,6 +150,28 @@ class NavigationStateTest {
     val updated = reduceNavigation(state, NavigationAction.ClearEpisodeSelection)
 
     assertNull(updated.selectedEpisodeId)
+  }
+
+  @Test
+  fun openingNoteUsesNotesRouteAndBackReturnsToList() {
+    val opened = reduceNavigation(MainNavigationState(), NavigationAction.OpenNote(42L))
+
+    assertEquals(AppRoute.Notes, opened.destination)
+    assertEquals(42L, opened.selectedNoteId)
+
+    val returned = reduceNavigation(opened, NavigationAction.NavigateBack)
+    assertNull(returned.selectedNoteId)
+    assertEquals(AppRoute.Notes, returned.destination)
+  }
+
+  @Test
+  fun clearingMissingNoteSelectionKeepsNotesListRoute() {
+    val opened = reduceNavigation(MainNavigationState(), NavigationAction.OpenNote(42L))
+
+    val cleared = reduceNavigation(opened, NavigationAction.ClearNoteSelection)
+
+    assertNull(cleared.selectedNoteId)
+    assertEquals(AppRoute.Notes, cleared.destination)
   }
 
   @Test

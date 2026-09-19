@@ -116,4 +116,61 @@ object XpodDatabaseMigrations {
           )
         }
       }
+
+  val MIGRATION_7_8 =
+      object : Migration(7, 8) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+          db.execSQL(
+              "CREATE TABLE IF NOT EXISTS `LocalMarkdownNoteEntity` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `title` TEXT NOT NULL, `content` TEXT NOT NULL, `createdEpochMs` INTEGER NOT NULL, `modifiedEpochMs` INTEGER NOT NULL)"
+          )
+          db.execSQL(
+              "CREATE INDEX IF NOT EXISTS `index_LocalMarkdownNoteEntity_modifiedEpochMs` ON `LocalMarkdownNoteEntity` (`modifiedEpochMs`)"
+          )
+          db.execSQL(
+              "CREATE VIRTUAL TABLE IF NOT EXISTS `LocalMarkdownNoteSearch` USING FTS4(`title` TEXT NOT NULL, `content` TEXT NOT NULL, content=`LocalMarkdownNoteEntity`)"
+          )
+          db.execSQL(
+              """
+              CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_LocalMarkdownNoteSearch_BEFORE_UPDATE
+              BEFORE UPDATE ON `LocalMarkdownNoteEntity`
+              BEGIN
+                DELETE FROM `LocalMarkdownNoteSearch` WHERE `docid`=OLD.`rowid`;
+              END
+              """
+                  .trimIndent()
+          )
+          db.execSQL(
+              """
+              CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_LocalMarkdownNoteSearch_BEFORE_DELETE
+              BEFORE DELETE ON `LocalMarkdownNoteEntity`
+              BEGIN
+                DELETE FROM `LocalMarkdownNoteSearch` WHERE `docid`=OLD.`rowid`;
+              END
+              """
+                  .trimIndent()
+          )
+          db.execSQL(
+              """
+              CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_LocalMarkdownNoteSearch_AFTER_UPDATE
+              AFTER UPDATE ON `LocalMarkdownNoteEntity`
+              BEGIN
+                INSERT INTO `LocalMarkdownNoteSearch`(`docid`, `title`, `content`)
+                VALUES (NEW.`rowid`, NEW.`title`, NEW.`content`);
+              END
+              """
+                  .trimIndent()
+          )
+          db.execSQL(
+              """
+              CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_LocalMarkdownNoteSearch_AFTER_INSERT
+              AFTER INSERT ON `LocalMarkdownNoteEntity`
+              BEGIN
+                INSERT INTO `LocalMarkdownNoteSearch`(`docid`, `title`, `content`)
+                VALUES (NEW.`rowid`, NEW.`title`, NEW.`content`);
+              END
+              """
+                  .trimIndent()
+          )
+        }
+      }
 }
