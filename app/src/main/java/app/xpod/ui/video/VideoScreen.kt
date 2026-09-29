@@ -1,6 +1,6 @@
 package app.xpod.ui.video
 
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,7 +42,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -108,11 +107,19 @@ internal fun VideoScreen(
   var renameTarget by remember { mutableStateOf<LocalVideoEntity?>(null) }
   var propertiesTarget by remember { mutableStateOf<LocalVideoEntity?>(null) }
   var deleteTarget by remember { mutableStateOf<VideoDeleteTarget?>(null) }
-  Column(
-      Modifier.fillMaxSize()
-          .padding(horizontal = 12.dp)
-          .videoFolderBackSwipe(state.currentFolderPath, state.query, openFolder),
+  BackHandler(
+      enabled = searchOpen || state.query.isNotBlank() || state.currentFolderPath.isNotBlank(),
   ) {
+    when {
+      searchOpen -> {
+        searchOpen = false
+        setQuery("")
+      }
+      state.query.isNotBlank() -> setQuery("")
+      else -> openFolder(parentVideoFolderPath(state.currentFolderPath))
+    }
+  }
+  Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
     Row(
         Modifier.fillMaxWidth().padding(top = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -331,24 +338,6 @@ private fun VideoBreadcrumbs(currentPath: String, openFolder: (String) -> Unit) 
   }
 }
 
-private fun Modifier.videoFolderBackSwipe(
-    currentFolderPath: String,
-    query: String,
-    openFolder: (String) -> Unit,
-): Modifier =
-    pointerInput(currentFolderPath, query) {
-      if (currentFolderPath.isBlank() || query.isNotBlank()) return@pointerInput
-      var totalDrag = 0f
-      detectHorizontalDragGestures(
-          onHorizontalDrag = { _, dragAmount -> totalDrag += dragAmount },
-          onDragEnd = {
-            if (totalDrag >= FOLDER_BACK_SWIPE_THRESHOLD_PX) {
-              openFolder(currentFolderPath.substringBeforeLast('/', missingDelimiterValue = ""))
-            }
-          },
-      )
-    }
-
 internal fun videoDetails(video: LocalVideoEntity, emptyLabel: String): String {
   val duration = video.durationMs.takeIf { it > 0L }?.let(::mediaTimeLabel)
   val resolution =
@@ -357,5 +346,3 @@ internal fun videoDetails(video: LocalVideoEntity, emptyLabel: String): String {
 }
 
 internal fun isVideoUnplayed(video: LocalVideoEntity): Boolean = video.lastOpenedEpochMs <= 0L
-
-private const val FOLDER_BACK_SWIPE_THRESHOLD_PX = 96f

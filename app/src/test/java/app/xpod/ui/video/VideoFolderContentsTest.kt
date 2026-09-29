@@ -100,6 +100,14 @@ class VideoFolderContentsTest {
     assertFalse(shouldStartAutomaticVideoScan("content://tree", false))
   }
 
+  @Test
+  fun parentFolderPathNormalizesFolderBoundaries() {
+    assertEquals("", parentVideoFolderPath("Movies"))
+    assertEquals("Movies", parentVideoFolderPath("Movies/Action"))
+    assertEquals("Movies", parentVideoFolderPath("/Movies/Action"))
+    assertEquals("Movies", parentVideoFolderPath("Movies/Action/"))
+  }
+
   private fun video(id: String, title: String, relativePath: String) =
       LocalVideoEntity(
           id = id,

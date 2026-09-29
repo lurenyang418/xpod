@@ -697,6 +697,9 @@ internal fun videoFolderContents(
 internal fun normalizeVideoPath(path: String): String =
     path.trim('/').split('/').filter(String::isNotBlank).joinToString("/")
 
+internal fun parentVideoFolderPath(path: String): String =
+    normalizeVideoPath(path).substringBeforeLast('/', missingDelimiterValue = "")
+
 internal fun shouldStartAutomaticVideoScan(source: String?, hasIndexedVideos: Boolean): Boolean =
     source == null ||
         source == LOCAL_VIDEO_ALL_FILES_SOURCE ||

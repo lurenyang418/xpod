@@ -1,5 +1,6 @@
 package app.xpod.ui.music
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -108,6 +109,18 @@ internal fun MusicScreen(
   val folderPlaybackTracks = state.playbackTracks
   var libraryActionsExpanded by remember { mutableStateOf(false) }
   var searchOpen by rememberSaveable { mutableStateOf(false) }
+  BackHandler(
+      enabled = searchOpen || state.query.isNotBlank() || state.currentFolderPath.isNotBlank(),
+  ) {
+    when {
+      searchOpen -> {
+        searchOpen = false
+        setQuery("")
+      }
+      state.query.isNotBlank() -> setQuery("")
+      else -> openFolder(parentMusicFolderPath(state.currentFolderPath))
+    }
+  }
 
   Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
     Row(
@@ -118,7 +131,8 @@ internal fun MusicScreen(
         OutlinedTextField(
             value = state.query,
             onValueChange = setQuery,
-            modifier = Modifier.weight(1f).padding(vertical = 4.dp),
+            modifier =
+                Modifier.weight(1f).padding(vertical = 4.dp).testTag("local_music_search_field"),
             textStyle = MaterialTheme.typography.bodyMedium,
             placeholder = {
               Text(
@@ -163,7 +177,11 @@ internal fun MusicScreen(
             Icon(Icons.Filled.Refresh, stringResource(R.string.refresh_local_music))
           }
         }
-        IconButton(onClick = { searchOpen = true }, enabled = !state.isScanning) {
+        IconButton(
+            onClick = { searchOpen = true },
+            enabled = !state.isScanning,
+            modifier = Modifier.testTag("local_music_search"),
+        ) {
           Icon(Icons.Filled.Search, stringResource(R.string.search_local_music_action))
         }
         if (!state.isGlobalSource) {

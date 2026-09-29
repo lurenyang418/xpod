@@ -380,3 +380,6 @@ internal fun musicFolderContents(
 
 internal fun normalizeMusicPath(path: String): String =
     path.trim('/').split('/').filter(String::isNotBlank).joinToString("/")
+
+internal fun parentMusicFolderPath(path: String): String =
+    normalizeMusicPath(path).substringBeforeLast('/', missingDelimiterValue = "")

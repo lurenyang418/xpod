@@ -2,8 +2,10 @@
 
 package app.xpod.ui
 
+import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -12,13 +14,14 @@ import app.xpod.ui.music.MusicFolder
 import app.xpod.ui.music.MusicScreen
 import app.xpod.ui.music.MusicUiState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class MusicScreenTest {
-  @get:Rule val compose = createComposeRule()
+  @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
   @Test
   fun playAllStartsTheFirstVisibleTrack() {
@@ -117,6 +120,225 @@ class MusicScreenTest {
       assertEquals("Jazz", openedPath)
       assertEquals(null, playedId)
     }
+  }
+
+  @Test
+  fun systemBackFromNestedFolderOpensParentFolder() {
+    val uiState =
+        mutableStateOf(
+            MusicUiState(
+                currentFolderPath = "Jazz/Live",
+                selectedTreeUri = "content://provider/tree/music",
+            )
+        )
+    val openedPaths = mutableListOf<String>()
+
+    compose.setContent {
+      MaterialTheme {
+        MusicScreen(
+            state = uiState.value,
+            nowPlaying = null,
+            chooseFolder = {},
+            refresh = {},
+            cancelScan = {},
+            setQuery = {},
+            openFolder = { path ->
+              openedPaths += path
+              uiState.value = uiState.value.copy(currentFolderPath = path, query = "")
+            },
+            play = {},
+            togglePlayback = {},
+            playNext = {},
+            addToQueue = {},
+        )
+      }
+    }
+
+    compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+
+    compose.runOnIdle {
+      assertEquals(listOf("Jazz"), openedPaths)
+      assertEquals("Jazz", uiState.value.currentFolderPath)
+    }
+  }
+
+  @Test
+  fun systemBackAtRootDoesNotOpenParentFolder() {
+    var openedPath: String? = null
+
+    compose.setContent {
+      MaterialTheme {
+        MusicScreen(
+            state = MusicUiState(selectedTreeUri = "content://provider/tree/music"),
+            nowPlaying = null,
+            chooseFolder = {},
+            refresh = {},
+            cancelScan = {},
+            setQuery = {},
+            openFolder = { openedPath = it },
+            play = {},
+            togglePlayback = {},
+            playNext = {},
+            addToQueue = {},
+        )
+      }
+    }
+
+    compose.runOnIdle {
+      // At the root, this screen's BackHandler is disabled and the dispatcher falls through.
+      assertFalse(compose.activity.onBackPressedDispatcher.hasEnabledCallbacks())
+      assertEquals(null, openedPath)
+    }
+  }
+
+  @Test
+  fun systemBackWithSearchQueryClearsSearchWithoutOpeningFolder() {
+    val uiState =
+        mutableStateOf(
+            MusicUiState(
+                currentFolderPath = "Jazz/Live",
+                query = "live",
+                selectedTreeUri = "content://provider/tree/music",
+            )
+        )
+    val openedPaths = mutableListOf<String>()
+
+    compose.setContent {
+      MaterialTheme {
+        MusicScreen(
+            state = uiState.value,
+            nowPlaying = null,
+            chooseFolder = {},
+            refresh = {},
+            cancelScan = {},
+            setQuery = { query -> uiState.value = uiState.value.copy(query = query) },
+            openFolder = { path ->
+              openedPaths += path
+              uiState.value = uiState.value.copy(currentFolderPath = path, query = "")
+            },
+            play = {},
+            togglePlayback = {},
+            playNext = {},
+            addToQueue = {},
+        )
+      }
+    }
+
+    compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+
+    compose.runOnIdle {
+      assertEquals("", uiState.value.query)
+      assertEquals("Jazz/Live", uiState.value.currentFolderPath)
+      assertEquals(emptyList<String>(), openedPaths)
+    }
+  }
+
+  @Test
+  fun backStepsThroughSearchThenFolderHierarchy() {
+    val uiState =
+        mutableStateOf(
+            MusicUiState(
+                currentFolderPath = "Jazz/Live",
+                query = "live",
+                selectedTreeUri = "content://provider/tree/music",
+            )
+        )
+    val openedPaths = mutableListOf<String>()
+
+    compose.setContent {
+      MaterialTheme {
+        MusicScreen(
+            state = uiState.value,
+            nowPlaying = null,
+            chooseFolder = {},
+            refresh = {},
+            cancelScan = {},
+            setQuery = { query -> uiState.value = uiState.value.copy(query = query) },
+            openFolder = { path ->
+              openedPaths += path
+              uiState.value = uiState.value.copy(currentFolderPath = path, query = "")
+            },
+            play = {},
+            togglePlayback = {},
+            playNext = {},
+            addToQueue = {},
+        )
+      }
+    }
+
+    fun pressBack() {
+      compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+      compose.waitForIdle()
+    }
+
+    pressBack()
+    compose.runOnIdle {
+      assertEquals("", uiState.value.query)
+      assertEquals("Jazz/Live", uiState.value.currentFolderPath)
+      assertEquals(emptyList<String>(), openedPaths)
+    }
+
+    pressBack()
+    compose.runOnIdle {
+      assertEquals("Jazz", uiState.value.currentFolderPath)
+      assertEquals(listOf("Jazz"), openedPaths)
+    }
+
+    pressBack()
+    compose.runOnIdle {
+      assertEquals("", uiState.value.currentFolderPath)
+      assertEquals(listOf("Jazz", ""), openedPaths)
+    }
+    compose.runOnUiThread {
+      assertFalse(compose.activity.onBackPressedDispatcher.hasEnabledCallbacks())
+    }
+  }
+
+  @Test
+  fun systemBackFromOpenSearchClosesSearchAndKeepsFolder() {
+    val uiState =
+        mutableStateOf(
+            MusicUiState(
+                currentFolderPath = "Jazz/Live",
+                query = "live",
+                selectedTreeUri = "content://provider/tree/music",
+            )
+        )
+    val openedPaths = mutableListOf<String>()
+
+    compose.setContent {
+      MaterialTheme {
+        MusicScreen(
+            state = uiState.value,
+            nowPlaying = null,
+            chooseFolder = {},
+            refresh = {},
+            cancelScan = {},
+            setQuery = { query -> uiState.value = uiState.value.copy(query = query) },
+            openFolder = { path ->
+              openedPaths += path
+              uiState.value = uiState.value.copy(currentFolderPath = path, query = "")
+            },
+            play = {},
+            togglePlayback = {},
+            playNext = {},
+            addToQueue = {},
+        )
+      }
+    }
+
+    compose.onNodeWithTag("local_music_search").performClick()
+    compose.onNodeWithTag("local_music_search_field").assertExists()
+
+    compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+    compose.waitForIdle()
+
+    compose.runOnIdle {
+      assertEquals("", uiState.value.query)
+      assertEquals("Jazz/Live", uiState.value.currentFolderPath)
+      assertEquals(emptyList<String>(), openedPaths)
+    }
+    compose.onNodeWithTag("local_music_search_field").assertDoesNotExist()
   }
 
   private fun track(id: String, title: String) =

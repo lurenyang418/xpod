@@ -4,6 +4,7 @@ import app.xpod.data.LOCAL_MUSIC_MEDIA_SOURCE
 import app.xpod.data.LocalTrackEntity
 import app.xpod.ui.music.MusicFolder
 import app.xpod.ui.music.musicFolderContents
+import app.xpod.ui.music.parentMusicFolderPath
 import app.xpod.ui.music.shouldStartAutomaticMusicScan
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -76,6 +77,14 @@ class MusicFolderContentsTest {
     assertTrue(shouldStartAutomaticMusicScan(source = null))
     assertFalse(shouldStartAutomaticMusicScan(LOCAL_MUSIC_MEDIA_SOURCE))
     assertFalse(shouldStartAutomaticMusicScan("content://tree"))
+  }
+
+  @Test
+  fun parentFolderPathNormalizesFolderBoundaries() {
+    assertEquals("", parentMusicFolderPath("Music"))
+    assertEquals("Music", parentMusicFolderPath("Music/Jazz"))
+    assertEquals("Music", parentMusicFolderPath("/Music/Jazz"))
+    assertEquals("Music", parentMusicFolderPath("Music/Jazz/"))
   }
 
   private fun track(id: String, title: String, relativePath: String) =
