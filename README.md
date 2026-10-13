@@ -4,7 +4,7 @@
 
 XPOD is a local-first podcast and article reader for Android 13+. It brings podcast RSS, article RSS/Atom, offline playback, a native article reader, and local music and video libraries into one Jetpack Compose app. Libraries can use platform-wide scanning or a user-selected folder through Android's Storage Access Framework.
 
-Current version: **0.10.1** · Android **13+** · **arm64-v8a** · [Apache-2.0](LICENSE)
+Current version: **0.10.2** · Android **13+** · **arm64-v8a** · [Apache-2.0](LICENSE)
 
 ## Screenshots
 
@@ -95,7 +95,7 @@ Cloud Memos is optional and is not a general cross-device sync service for XPOD'
 
 - JDK 17
 - Android SDK Platform 37
-- An Android 13+ arm64 device or emulator for installation
+- An Android 13+ arm64 device for installation and release validation
 
 The repository includes the Gradle 9.7.1 wrapper, so a separate Gradle installation is not required.
 
@@ -147,7 +147,7 @@ Before publishing a release, run the release-oriented checks:
 ./gradlew spotlessCheck testDebugUnitTest lintDebug assembleRelease
 ```
 
-With a connected device or emulator:
+With a connected arm64 device:
 
 ```bash
 ./gradlew connectedDebugAndroidTest
