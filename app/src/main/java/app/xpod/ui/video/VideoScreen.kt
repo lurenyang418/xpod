@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.VideoLibrary
@@ -31,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -247,28 +249,45 @@ internal fun VideoScreen(
           style = MaterialTheme.typography.bodyLarge,
       )
     } else {
-      LazyColumn(
-          Modifier.fillMaxWidth().weight(1f),
-          contentPadding = PaddingValues(bottom = 12.dp),
-          verticalArrangement = Arrangement.spacedBy(6.dp),
-      ) {
-        items(state.visibleFolders, key = { "folder:${it.path}" }) { folder ->
-          VideoFolderRow(
-              folder = folder,
-              enabled = true,
-              onOpen = { openFolder(folder.path) },
-              onDelete = { deleteTarget = VideoDeleteTarget.Folder(folder) },
-          )
+      val resumableVideo =
+          state.playbackVideos
+              .filter { videoResumePosition(it.lastPositionMs, it.durationMs) > 0L }
+              .maxByOrNull { it.lastOpenedEpochMs }
+      Box(Modifier.fillMaxWidth().weight(1f)) {
+        LazyColumn(
+            Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(bottom = if (resumableVideo != null) 88.dp else 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+          items(state.visibleFolders, key = { "folder:${it.path}" }) { folder ->
+            VideoFolderRow(
+                folder = folder,
+                enabled = true,
+                onOpen = { openFolder(folder.path) },
+                onDelete = { deleteTarget = VideoDeleteTarget.Folder(folder) },
+            )
+          }
+          items(state.visibleVideos, key = { "video:${it.id}" }) { video ->
+            VideoRow(
+                video = video,
+                enabled = true,
+                onPlay = { play(video) },
+                onRename = { renameTarget = video },
+                onProperties = { propertiesTarget = video },
+                onDelete = { deleteTarget = VideoDeleteTarget.Video(video) },
+            )
+          }
         }
-        items(state.visibleVideos, key = { "video:${it.id}" }) { video ->
-          VideoRow(
-              video = video,
-              enabled = true,
-              onPlay = { play(video) },
-              onRename = { renameTarget = video },
-              onProperties = { propertiesTarget = video },
-              onDelete = { deleteTarget = VideoDeleteTarget.Video(video) },
-          )
+        resumableVideo?.let { video ->
+          SmallFloatingActionButton(
+              onClick = { play(video) },
+              modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
+          ) {
+            Icon(
+                Icons.Filled.PlayArrow,
+                contentDescription = stringResource(R.string.continue_video),
+            )
+          }
         }
       }
     }

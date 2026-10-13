@@ -55,6 +55,25 @@ constructor(
           true,
       )
 
+  val showVideoPlayerClock: StateFlow<Boolean> =
+      settings.showVideoPlayerClock.stateIn(
+          viewModelScope,
+          SharingStarted.WhileSubscribed(5_000),
+          false,
+      )
+  val showVideoPlayerBattery: StateFlow<Boolean> =
+      settings.showVideoPlayerBattery.stateIn(
+          viewModelScope,
+          SharingStarted.WhileSubscribed(5_000),
+          false,
+      )
+  val allowVideoBackgroundPlayback: StateFlow<Boolean> =
+      settings.allowVideoBackgroundPlayback.stateIn(
+          viewModelScope,
+          SharingStarted.WhileSubscribed(5_000),
+          false,
+      )
+
   val tabOrder: StateFlow<List<AppTab>> =
       settings.tabOrder.stateIn(
           viewModelScope,
@@ -96,6 +115,18 @@ constructor(
   fun setWifiOnlyDownloads(enabled: Boolean) = viewModelScope.launch {
     settings.setWifiOnlyDownloads(enabled)
     downloads.setWifiOnly(enabled)
+  }
+
+  fun setShowVideoPlayerClock(enabled: Boolean) = viewModelScope.launch {
+    settings.setShowVideoPlayerClock(enabled)
+  }
+
+  fun setShowVideoPlayerBattery(enabled: Boolean) = viewModelScope.launch {
+    settings.setShowVideoPlayerBattery(enabled)
+  }
+
+  fun setAllowVideoBackgroundPlayback(enabled: Boolean) = viewModelScope.launch {
+    settings.setAllowVideoBackgroundPlayback(enabled)
   }
 
   fun moveTab(tab: AppTab, offset: Int) = viewModelScope.launch {

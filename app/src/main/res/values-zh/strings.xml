@@ -429,6 +429,19 @@
     <string name="could_not_open_video">无法打开此视频</string>
     <string name="video_progress">已观看 %1$d%%</string>
     <string name="video_file_details">视频</string>
+    <string name="continue_video">继续播放视频</string>
+    <string name="video_settings">视频播放</string>
+    <string name="video_player_clock">在视频播放时显示时间</string>
+    <string name="video_player_clock_summary">视频控制栏显示时，在右上角显示当前时间。</string>
+    <string name="video_player_battery">在视频播放时显示电量</string>
+    <string name="video_player_battery_summary">视频控制栏显示时，在右上角显示电量百分比。</string>
+    <string name="video_background_playback">允许视频后台播放</string>
+    <string name="video_background_playback_summary">XPOD 进入后台后继续播放声音，并支持通知栏和锁屏控制。</string>
+    <string name="video_background_playback_failed">无法启动视频后台播放。</string>
+    <string name="video_progress_compact">%1$d%%</string>
+    <string name="restart_video">从头播放</string>
+    <string name="retry_video">重试</string>
+    <string name="copy_error">复制错误</string>
     <plurals name="videos_scan_complete">
         <item quantity="other">已找到 %1$d 个本地视频</item>
     </plurals>

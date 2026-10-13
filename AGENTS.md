@@ -11,7 +11,7 @@ XPOD is a Kotlin and Jetpack Compose Android podcast client. The app targets And
 - `./gradlew spotlessCheck` verifies Kotlin and Gradle formatting with ktfmt.
 - `./gradlew spotlessApply` formats the repository with the configured ktfmt version.
 - `./gradlew assembleRelease` builds the optimized release APK.
-- `./gradlew connectedDebugAndroidTest` runs instrumented tests on a connected device or emulator.
+- `./gradlew connectedDebugAndroidTest` runs instrumented tests on a connected arm64 device. Do not depend on an emulator for release validation.
 
 ## Engineering Rules
 
@@ -24,4 +24,5 @@ XPOD is a Kotlin and Jetpack Compose Android podcast client. The app targets And
 - Keep Markdown UI split by responsibility (note list, editor, toolbar, preview) instead of growing one screen file. Import local images through SAF, copy them to app-private note storage, resolve only validated note-owned attachment references, and include referenced assets in ZIP backups; do not persist picker grants or add broad storage permissions.
 - Keep Markdown source syntax highlighting offset-preserving: do not rewrite source text or caret positions, and cap work for very large documents to protect typing responsiveness.
 - Run `spotlessCheck`, the focused test suite, and the relevant build task for every changed behavior before committing.
-- Before publishing a release, run `spotlessCheck testDebugUnitTest lintDebug assembleRelease` and complete a real-device smoke test.
+- Release artifacts are arm64-only (`arm64-v8a`); do not treat x86/x86_64 emulator results as release validation.
+- Before publishing a release, run `spotlessCheck testDebugUnitTest lintDebug assembleRelease` and complete a smoke test on a real arm64 device. Verify installation, video playback, background playback, lock-screen/media controls, and notification behavior on the device.

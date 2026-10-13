@@ -1,6 +1,9 @@
 package app.xpod.ui.video
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.media.AudioManager
@@ -21,6 +24,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PictureInPictureAlt
+import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -57,6 +62,9 @@ import app.xpod.data.LocalVideoEntity
 import app.xpod.ui.player.buildPictureInPictureParams
 import app.xpod.ui.player.mediaTimeLabel
 import app.xpod.ui.player.speedLabel
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlinx.coroutines.delay
 
 @androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
@@ -68,9 +76,13 @@ internal fun VideoPlayerScreen(
     playlist: List<LocalVideoEntity>,
     onClose: () -> Unit,
     onTogglePlayback: () -> Unit,
+    onRetry: () -> Unit,
+    onRestart: () -> Unit,
     onSeekBy: (Long) -> Unit,
     onSetSpeed: (Float) -> Unit,
     onSelectVideo: (String) -> Unit,
+    showClock: Boolean,
+    showBattery: Boolean,
 ) {
   val speedOptions = listOf(0.5f, 1f, 1.25f, 1.5f, 2f)
   var controlsVisible by remember { mutableStateOf(true) }
@@ -79,11 +91,36 @@ internal fun VideoPlayerScreen(
   var showRemainingTime by remember { mutableStateOf(false) }
   var showPlaylist by remember { mutableStateOf(false) }
   var tapFeedback by remember { mutableStateOf<VideoTapFeedback?>(null) }
+  var currentTime by remember { mutableStateOf(videoPlayerClockLabel()) }
+  var batteryPercent by remember { mutableStateOf<Int?>(null) }
   val activity = LocalActivity.current
   val context = LocalContext.current
   val view = LocalView.current
   val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
   val isInPictureInPictureMode = activity?.isInPictureInPictureMode == true
+  val playbackErrorText = playerState.errorMessage ?: stringResource(R.string.video_playback_failed)
+  val playbackErrorTitle = stringResource(R.string.video_playback_failed)
+  LaunchedEffect(showClock) {
+    if (showClock) {
+      while (true) {
+        currentTime = videoPlayerClockLabel()
+        delay(30_000L)
+      }
+    }
+  }
+  DisposableEffect(context, showBattery) {
+    if (!showBattery) return@DisposableEffect onDispose {}
+    val receiver =
+        object : BroadcastReceiver() {
+          override fun onReceive(context: Context, intent: Intent) {
+            val level = intent.getIntExtra("level", -1)
+            val scale = intent.getIntExtra("scale", -1)
+            batteryPercent = if (level >= 0 && scale > 0) level * 100 / scale else null
+          }
+        }
+    context.registerReceiver(receiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+    onDispose { context.unregisterReceiver(receiver) }
+  }
   val touchListener =
       remember(activity, player) {
         VideoGestureTouchListener(
@@ -222,6 +259,19 @@ internal fun VideoPlayerScreen(
               color = Color.White,
               style = MaterialTheme.typography.titleMedium,
           )
+          if (playerState.durationMs > 0L) {
+            Text(
+                text =
+                    stringResource(
+                        R.string.video_progress_compact,
+                        (playerState.positionMs * 100 / playerState.durationMs)
+                            .toInt()
+                            .coerceIn(0, 100),
+                    ),
+                color = Color.White.copy(alpha = 0.86f),
+                style = MaterialTheme.typography.labelMedium,
+            )
+          }
           IconButton(
               onClick = { showPlaylist = true },
               enabled = playlist.isNotEmpty(),
@@ -251,18 +301,27 @@ internal fun VideoPlayerScreen(
               )
             }
           }
-          TextButton(
+          IconButton(
               onClick = {
                 activity?.requestedOrientation =
                     if (isLandscape) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                     else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
               },
           ) {
-            Text(
-                stringResource(
-                    if (isLandscape) R.string.lock_portrait else R.string.lock_landscape
-                ),
-                color = Color.White,
+            Icon(
+                Icons.Filled.ScreenRotation,
+                contentDescription =
+                    stringResource(
+                        if (isLandscape) R.string.lock_portrait else R.string.lock_landscape
+                    ),
+                tint = Color.White,
+            )
+          }
+          IconButton(onClick = onRestart) {
+            Icon(
+                Icons.Filled.Replay,
+                contentDescription = stringResource(R.string.restart_video),
+                tint = Color.White,
             )
           }
           TextButton(
@@ -272,6 +331,30 @@ internal fun VideoPlayerScreen(
               },
           ) {
             Text(speedLabel(playerState.speed), color = Color.White)
+          }
+          if (showClock || showBattery) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+              if (showClock) {
+                Text(
+                    text = currentTime,
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge,
+                )
+              }
+              if (showBattery) {
+                batteryPercent?.let {
+                  Text(
+                      text = "$it%",
+                      color = Color.White,
+                      style = MaterialTheme.typography.labelLarge,
+                      modifier = Modifier.padding(start = 12.dp),
+                  )
+                }
+              }
+            }
           }
         }
       }
@@ -292,11 +375,31 @@ internal fun VideoPlayerScreen(
           color = MaterialTheme.colorScheme.errorContainer,
           modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
       ) {
-        Text(
-            stringResource(R.string.video_playback_failed),
-            color = MaterialTheme.colorScheme.onErrorContainer,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-        )
+        Row(
+            Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Text(
+              playbackErrorText,
+              color = MaterialTheme.colorScheme.onErrorContainer,
+              modifier = Modifier.weight(1f),
+          )
+          TextButton(onClick = onRetry) { Text(stringResource(R.string.retry_video)) }
+          TextButton(
+              onClick = {
+                val clip =
+                    android.content.ClipData.newPlainText(
+                        playbackErrorTitle,
+                        playbackErrorText,
+                    )
+                context
+                    .getSystemService(android.content.ClipboardManager::class.java)
+                    ?.setPrimaryClip(clip)
+              }
+          ) {
+            Text(stringResource(R.string.copy_error))
+          }
+        }
       }
     }
     if (!isInPictureInPictureMode && speedBoosted) {
@@ -327,6 +430,9 @@ internal fun VideoPlayerScreen(
     }
   }
 }
+
+private fun videoPlayerClockLabel(): String =
+    LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault()))
 
 private fun updateVideoDurationLabel(
     durationView: TextView,

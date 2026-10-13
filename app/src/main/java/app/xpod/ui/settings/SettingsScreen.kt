@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -67,11 +68,17 @@ internal fun SettingsScreen(
     theme: ThemeMode,
     dynamicColor: Boolean,
     wifiOnlyDownloads: Boolean,
+    showVideoPlayerClock: Boolean = false,
+    showVideoPlayerBattery: Boolean = false,
+    allowVideoBackgroundPlayback: Boolean = false,
     readingPreferences: ReadingPreferences,
     cloudMemos: CloudMemosUiState,
     setTheme: (ThemeMode) -> Unit,
     setDynamicColor: (Boolean) -> Unit,
     setWifiOnlyDownloads: (Boolean) -> Unit,
+    setShowVideoPlayerClock: (Boolean) -> Unit = {},
+    setShowVideoPlayerBattery: (Boolean) -> Unit = {},
+    setAllowVideoBackgroundPlayback: (Boolean) -> Unit = {},
     setReadingFontSize: (Float) -> Unit,
     setReadingLineHeight: (Float) -> Unit,
     setReadingTheme: (ReadingTheme) -> Unit,
@@ -204,6 +211,30 @@ internal fun SettingsScreen(
             title = stringResource(R.string.queue),
             icon = Icons.AutoMirrored.Filled.QueueMusic,
             onClick = showQueue,
+        )
+      }
+    }
+    item {
+      SettingsCard(stringResource(R.string.video_settings), Icons.Filled.VideoLibrary) {
+        SettingsToggleRow(
+            title = stringResource(R.string.video_player_clock),
+            summary = stringResource(R.string.video_player_clock_summary),
+            checked = showVideoPlayerClock,
+            onCheckedChange = setShowVideoPlayerClock,
+        )
+        HorizontalDivider()
+        SettingsToggleRow(
+            title = stringResource(R.string.video_player_battery),
+            summary = stringResource(R.string.video_player_battery_summary),
+            checked = showVideoPlayerBattery,
+            onCheckedChange = setShowVideoPlayerBattery,
+        )
+        HorizontalDivider()
+        SettingsToggleRow(
+            title = stringResource(R.string.video_background_playback),
+            summary = stringResource(R.string.video_background_playback_summary),
+            checked = allowVideoBackgroundPlayback,
+            onCheckedChange = setAllowVideoBackgroundPlayback,
         )
       }
     }

@@ -1,5 +1,6 @@
 package app.xpod.ui.video
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,7 +16,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -27,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -62,7 +67,7 @@ internal fun VideoPlaylistDrawer(
                   .statusBarsPadding()
                   .navigationBarsPadding()
                   .clickable(onClick = {}),
-          color = Color.Transparent,
+          color = Color.Black.copy(alpha = 0.92f),
           tonalElevation = 0.dp,
           shape = MaterialTheme.shapes.large,
       ) {
@@ -74,8 +79,9 @@ internal fun VideoPlaylistDrawer(
             val active = item.id == currentVideoId
             Surface(
                 color =
-                    if (active) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.20f)
-                    else MaterialTheme.colorScheme.surface.copy(alpha = 0.20f),
+                    if (active) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.90f)
+                    else Color.White.copy(alpha = 0.10f),
+                border = if (active) BorderStroke(1.dp, Color.White.copy(alpha = 0.75f)) else null,
                 shape = MaterialTheme.shapes.medium,
                 modifier =
                     Modifier.fillMaxWidth().clickable(enabled = !active) { onSelectVideo(item.id) },
@@ -90,7 +96,15 @@ internal fun VideoPlaylistDrawer(
                     contentDescription = item.title,
                 )
                 Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                  Text(item.title, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                  Text(
+                      item.title,
+                      maxLines = 2,
+                      overflow = TextOverflow.Ellipsis,
+                      color =
+                          if (active) MaterialTheme.colorScheme.onSecondaryContainer
+                          else Color.White,
+                      fontWeight = if (active) FontWeight.SemiBold else null,
+                  )
                   Text(
                       if (active) stringResource(R.string.now_playing)
                       else videoDetails(item, stringResource(R.string.video_file_details)),
@@ -98,8 +112,16 @@ internal fun VideoPlaylistDrawer(
                       overflow = TextOverflow.Ellipsis,
                       style = MaterialTheme.typography.bodySmall,
                       color =
-                          if (active) MaterialTheme.colorScheme.primary
-                          else MaterialTheme.colorScheme.onSurfaceVariant,
+                          if (active) MaterialTheme.colorScheme.onSecondaryContainer
+                          else Color.White.copy(alpha = 0.82f),
+                  )
+                }
+                if (active) {
+                  Icon(
+                      Icons.Filled.PlayArrow,
+                      contentDescription = null,
+                      tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                      modifier = Modifier.size(20.dp),
                   )
                 }
               }

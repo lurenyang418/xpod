@@ -93,6 +93,11 @@ internal fun XpodHome(
       }
   val downloadStates by viewModel.downloadStates.collectAsStateWithLifecycle()
   val wifiOnlyDownloads by settingsViewModel.wifiOnlyDownloads.collectAsStateWithLifecycle()
+  val showVideoPlayerClock by settingsViewModel.showVideoPlayerClock.collectAsStateWithLifecycle()
+  val showVideoPlayerBattery by
+      settingsViewModel.showVideoPlayerBattery.collectAsStateWithLifecycle()
+  val allowVideoBackgroundPlayback by
+      settingsViewModel.allowVideoBackgroundPlayback.collectAsStateWithLifecycle()
   val cloudMemos by viewModel.cloudMemosState.collectAsStateWithLifecycle()
   val memosViewModel: MemosViewModel = hiltViewModel()
   val memos by memosViewModel.memosState.collectAsStateWithLifecycle()
@@ -665,6 +670,9 @@ internal fun XpodHome(
         theme = theme,
         dynamic = dynamic,
         wifiOnlyDownloads = wifiOnlyDownloads,
+        showVideoPlayerClock = showVideoPlayerClock,
+        showVideoPlayerBattery = showVideoPlayerBattery,
+        allowVideoBackgroundPlayback = allowVideoBackgroundPlayback,
         readerPreferences = readerPreferences,
         tabOrder = tabOrder,
         enabledTabs = enabledTabs,

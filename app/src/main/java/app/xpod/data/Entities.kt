@@ -113,14 +113,19 @@ data class LocalVideoEntity(
 
 enum class PlaybackMediaType {
   Podcast,
-  Music;
+  Music,
+  Video;
 
   companion object {
     fun fromStored(value: String): PlaybackMediaType =
         entries.firstOrNull { it.name == value } ?: Podcast
 
     fun fromMediaId(mediaId: String?): PlaybackMediaType =
-        if (mediaId?.startsWith(LOCAL_TRACK_ID_PREFIX) == true) Music else Podcast
+        when {
+          mediaId?.startsWith(LOCAL_VIDEO_ID_PREFIX) == true -> Video
+          mediaId?.startsWith(LOCAL_TRACK_ID_PREFIX) == true -> Music
+          else -> Podcast
+        }
   }
 }
 
@@ -155,6 +160,16 @@ fun LocalTrackEntity.asPlaybackItem(): PlaybackItem =
         mediaType = PlaybackMediaType.Music,
         title = title,
         subtitle = artist.ifBlank { album },
+        uri = documentUri,
+        durationMs = durationMs.takeIf { it > 0L },
+    )
+
+fun LocalVideoEntity.asPlaybackItem(): PlaybackItem =
+    PlaybackItem(
+        id = LOCAL_VIDEO_ID_PREFIX + id,
+        mediaType = PlaybackMediaType.Video,
+        title = title,
+        subtitle = "Video",
         uri = documentUri,
         durationMs = durationMs.takeIf { it > 0L },
     )

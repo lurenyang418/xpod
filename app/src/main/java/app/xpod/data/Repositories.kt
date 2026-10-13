@@ -341,6 +341,7 @@ constructor(private val database: XpodDatabase, private val clock: Clock) {
       when (mediaType) {
         PlaybackMediaType.Podcast -> database.episodes().find(id) != null
         PlaybackMediaType.Music -> database.localTracks().find(id) != null
+        PlaybackMediaType.Video -> id.startsWith(LOCAL_VIDEO_ID_PREFIX)
       }
     }
     val updatedAtEpochMs =
@@ -408,6 +409,9 @@ constructor(@param:ApplicationContext private val context: Context) {
   private val speed = floatPreferencesKey("default_speed")
   private val themeMode = stringPreferencesKey("theme_mode")
   private val wifiOnlyDownloads = booleanPreferencesKey("wifi_only_downloads")
+  private val videoPlayerClock = booleanPreferencesKey("video_player_clock")
+  private val videoPlayerBattery = booleanPreferencesKey("video_player_battery")
+  private val videoBackgroundPlayback = booleanPreferencesKey("video_background_playback")
   private val tabOrderKey = stringPreferencesKey("tab_order")
   private val disabledTabsKey = stringPreferencesKey("disabled_tabs")
   private val localMusicTreeUriKey = stringPreferencesKey("local_music_tree_uri")
@@ -427,6 +431,12 @@ constructor(@param:ApplicationContext private val context: Context) {
       }
   val useWifiOnlyDownloads: Flow<Boolean> =
       context.settingsStore.data.map { it[wifiOnlyDownloads] ?: true }
+  val showVideoPlayerClock: Flow<Boolean> =
+      context.settingsStore.data.map { it[videoPlayerClock] ?: false }
+  val showVideoPlayerBattery: Flow<Boolean> =
+      context.settingsStore.data.map { it[videoPlayerBattery] ?: false }
+  val allowVideoBackgroundPlayback: Flow<Boolean> =
+      context.settingsStore.data.map { it[videoBackgroundPlayback] ?: false }
   val tabOrder: Flow<List<AppTab>> =
       context.settingsStore.data.map { preferences -> parseTabOrder(preferences[tabOrderKey]) }
   val enabledTabs: Flow<Set<AppTab>> =
@@ -472,6 +482,18 @@ constructor(@param:ApplicationContext private val context: Context) {
 
   suspend fun setWifiOnlyDownloads(enabled: Boolean) {
     context.settingsStore.edit { it[wifiOnlyDownloads] = enabled }
+  }
+
+  suspend fun setShowVideoPlayerClock(enabled: Boolean) {
+    context.settingsStore.edit { it[videoPlayerClock] = enabled }
+  }
+
+  suspend fun setShowVideoPlayerBattery(enabled: Boolean) {
+    context.settingsStore.edit { it[videoPlayerBattery] = enabled }
+  }
+
+  suspend fun setAllowVideoBackgroundPlayback(enabled: Boolean) {
+    context.settingsStore.edit { it[videoBackgroundPlayback] = enabled }
   }
 
   suspend fun setMarkdownTheme(value: MarkdownThemeMode) {

@@ -22,6 +22,8 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionError
 import app.xpod.MainActivity
 import app.xpod.R
+import app.xpod.data.LOCAL_VIDEO_ID_PREFIX
+import app.xpod.data.LocalVideoRepository
 import app.xpod.data.MusicPlaybackSettings
 import app.xpod.data.PlaybackItem
 import app.xpod.data.PlaybackMediaType
@@ -53,6 +55,7 @@ class PlaybackService : MediaLibraryService() {
   @Inject lateinit var playbackRepository: PlaybackRepository
   @Inject lateinit var settings: SettingsRepository
   @Inject lateinit var database: XpodDatabase
+  @Inject lateinit var localVideos: LocalVideoRepository
   @Inject lateinit var okHttpClient: OkHttpClient
   private val playerScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
   private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -206,6 +209,14 @@ class PlaybackService : MediaLibraryService() {
                                             .localTracks()
                                             .find(reference.mediaId)
                                             ?.asPlaybackItem()
+                                    PlaybackMediaType.Video ->
+                                        localVideos
+                                            .video(
+                                                reference.mediaId.removePrefix(
+                                                    LOCAL_VIDEO_ID_PREFIX
+                                                )
+                                            )
+                                            ?.asPlaybackItem()
                                   }
                                 }
                             val queue = items.ifEmpty {
@@ -215,6 +226,10 @@ class PlaybackService : MediaLibraryService() {
                                         database.episodes().find(id)?.asPlaybackItem()
                                     PlaybackMediaType.Music ->
                                         database.localTracks().find(id)?.asPlaybackItem()
+                                    PlaybackMediaType.Video ->
+                                        localVideos
+                                            .video(id.removePrefix(LOCAL_VIDEO_ID_PREFIX))
+                                            ?.asPlaybackItem()
                                   } ?: error("Previous item is unavailable")
                               )
                             }
@@ -311,6 +326,13 @@ class PlaybackService : MediaLibraryService() {
         snapshot.speed,
         snapshot.capturedAtEpochMs,
     )
+    if (snapshot.mediaType == PlaybackMediaType.Video && snapshot.mediaId != null) {
+      localVideos.updateProgress(
+          snapshot.mediaId.removePrefix(LOCAL_VIDEO_ID_PREFIX),
+          snapshot.positionMs,
+          snapshot.capturedAtEpochMs,
+      )
+    }
     if (
         snapshot.mediaType == PlaybackMediaType.Podcast &&
             snapshot.mediaId != null &&
@@ -418,6 +440,10 @@ class PlaybackService : MediaLibraryService() {
                       database.episodes().find(requested.mediaId)?.asPlaybackItem()
                   PlaybackMediaType.Music ->
                       database.localTracks().find(requested.mediaId)?.asPlaybackItem()
+                  PlaybackMediaType.Video ->
+                      localVideos
+                          .video(requested.mediaId.removePrefix(LOCAL_VIDEO_ID_PREFIX))
+                          ?.asPlaybackItem()
                 }?.let(::mediaItem)
               }
             }
@@ -514,8 +540,11 @@ class PlaybackService : MediaLibraryService() {
         AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
             .setContentType(
-                if (mediaType == PlaybackMediaType.Music) C.AUDIO_CONTENT_TYPE_MUSIC
-                else C.AUDIO_CONTENT_TYPE_SPEECH
+                when (mediaType) {
+                  PlaybackMediaType.Music -> C.AUDIO_CONTENT_TYPE_MUSIC
+                  PlaybackMediaType.Video -> C.AUDIO_CONTENT_TYPE_MOVIE
+                  PlaybackMediaType.Podcast -> C.AUDIO_CONTENT_TYPE_SPEECH
+                }
             )
             .build()
 

@@ -7,8 +7,10 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import app.xpod.data.EpisodeEntity
+import app.xpod.data.LOCAL_VIDEO_ID_PREFIX
 import app.xpod.data.LocalMusicRepository
 import app.xpod.data.LocalTrackEntity
+import app.xpod.data.LocalVideoRepository
 import app.xpod.data.MusicPlaybackSettings
 import app.xpod.data.MusicRepeatMode
 import app.xpod.data.PlaybackItem
@@ -75,6 +77,7 @@ constructor(
     private val playbackRepository: PlaybackRepository,
     private val podcasts: PodcastRepository,
     private val localMusic: LocalMusicRepository,
+    private val localVideos: LocalVideoRepository,
     private val settings: SettingsRepository,
     @param:app.xpod.di.ApplicationScope private val scope: CoroutineScope,
 ) {
@@ -823,6 +826,10 @@ constructor(
       when (reference.mediaType) {
         PlaybackMediaType.Podcast -> podcasts.episode(reference.mediaId)?.asPlaybackItem()
         PlaybackMediaType.Music -> localMusic.track(reference.mediaId)?.asPlaybackItem()
+        PlaybackMediaType.Video ->
+            localVideos
+                .video(reference.mediaId.removePrefix(LOCAL_VIDEO_ID_PREFIX))
+                ?.asPlaybackItem()
       }
 
   private fun mediaItem(item: PlaybackItem) =

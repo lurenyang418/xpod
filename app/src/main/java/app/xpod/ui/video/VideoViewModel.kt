@@ -2,6 +2,9 @@ package app.xpod.ui.video
 
 import android.content.Context
 import android.util.Log
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.AudioAttributes
@@ -11,16 +14,22 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import app.xpod.R
 import app.xpod.data.LOCAL_VIDEO_ALL_FILES_SOURCE
+import app.xpod.data.LOCAL_VIDEO_ID_PREFIX
 import app.xpod.data.LOCAL_VIDEO_MEDIA_SOURCE
 import app.xpod.data.LocalVideoEntity
 import app.xpod.data.LocalVideoRepository
+import app.xpod.data.SettingsRepository
 import app.xpod.data.VideoDeleteResult
 import app.xpod.data.VideoRenameResult
 import app.xpod.data.appendRelativePath
+import app.xpod.data.asPlaybackItem
 import app.xpod.data.isGlobalVideoSource
 import app.xpod.playback.PlaybackController
+import app.xpod.playback.PlaybackService
 import app.xpod.ui.shared.StatusSeverity
 import app.xpod.ui.shared.UiStatus
 import app.xpod.util.runCatchingCancellable
@@ -29,6 +38,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.Clock
 import java.util.Locale
 import javax.inject.Inject
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -38,10 +49,12 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -99,6 +112,7 @@ class VideoViewModel
 constructor(
     private val localVideos: LocalVideoRepository,
     private val audioPlayback: PlaybackController,
+    private val settings: SettingsRepository,
     @param:ApplicationContext private val context: Context,
     private val clock: Clock,
 ) : ViewModel() {
@@ -120,6 +134,20 @@ constructor(
   private val playerMutationMutex = Mutex()
   private var automaticScanStarted = false
   private var automaticPermissionRequested = false
+  private var backgroundController: MediaController? = null
+  private var backgroundTransferJob: Job? = null
+  private val processLifecycleObserver = LifecycleEventObserver { _, event ->
+    when (event) {
+      Lifecycle.Event.ON_STOP ->
+          viewModelScope.launch {
+            if (settings.allowVideoBackgroundPlayback.first()) {
+              enterBackgroundPlayback()
+            }
+          }
+      Lifecycle.Event.ON_START -> restoreForegroundPlayback()
+      else -> Unit
+    }
+  }
   private val _status = MutableStateFlow<UiStatus?>(null)
   val status: StateFlow<UiStatus?> = _status.asStateFlow()
   val videoDeleteRequests = deleteRequests.receiveAsFlow()
@@ -263,6 +291,7 @@ constructor(
           .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VideoUiState())
 
   init {
+    ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleObserver)
     progressWriteJob = viewModelScope.launch {
       for (write in progressWrites) {
         try {
@@ -506,15 +535,128 @@ constructor(
   fun closeVideo() {
     viewModelScope.launch {
       playerMutationMutex.withLock {
-        persistPositionNow()
+        backgroundTransferJob?.cancel()
+        val backgroundMediaId = backgroundController?.currentMediaItem?.mediaId
+        if (backgroundMediaId != null) {
+          localVideos.updateProgress(
+              backgroundMediaId.removePrefix(LOCAL_VIDEO_ID_PREFIX),
+              backgroundController?.currentPosition ?: 0L,
+              clock.millis(),
+          )
+        } else {
+          persistPositionNow()
+        }
         // Clear the id before stopping. Media3 emits pause/state callbacks from stop(), and
         // those callbacks must not persist the reset position (0) over the saved position.
         playerVideoId.value = null
         playerQueueIds.value = emptyList()
         player.stop()
         player.clearMediaItems()
+        backgroundController?.stop()
+        backgroundController?.release()
+        backgroundController = null
         _playerState.value = VideoPlayerState()
       }
+    }
+  }
+
+  fun enterBackgroundPlayback() {
+    if (
+        playerVideoId.value == null ||
+            backgroundController != null ||
+            backgroundTransferJob?.isActive == true ||
+            !player.playWhenReady ||
+            player.playbackState == Player.STATE_ENDED
+    ) {
+      return
+    }
+    val queue = state.value.playbackQueue
+    val currentId = playerVideoId.value ?: return
+    val startIndex = queue.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
+    if (queue.isEmpty()) return
+    backgroundTransferJob = viewModelScope.launch {
+      try {
+        runCatchingCancellable {
+              val controller = buildBackgroundController()
+              try {
+                controller.setMediaItems(
+                    queue.map { video ->
+                      MediaItem.Builder()
+                          .setMediaId(video.asPlaybackItem().id)
+                          .setUri(video.documentUri)
+                          .build()
+                    },
+                    startIndex,
+                    player.currentPosition.coerceAtLeast(0L),
+                )
+                controller.prepare()
+                controller.play()
+                backgroundController = controller
+                player.stop()
+              } catch (error: Throwable) {
+                if (backgroundController === controller) backgroundController = null
+                controller.release()
+                throw error
+              }
+            }
+            .onFailure {
+              Log.w("XPOD", "Unable to start background video playback", it)
+              _status.value =
+                  UiStatus(
+                      context.getString(R.string.video_background_playback_failed),
+                      StatusSeverity.Error,
+                  )
+            }
+      } finally {
+        backgroundTransferJob = null
+      }
+    }
+  }
+
+  fun restoreForegroundPlayback() {
+    viewModelScope.launch {
+      backgroundTransferJob?.join()
+      val controller = backgroundController ?: return@launch
+      val mediaId = controller.currentMediaItem?.mediaId
+      val positionMs = controller.currentPosition.coerceAtLeast(0L)
+      val wasPlaying = controller.isPlaying
+      controller.stop()
+      controller.release()
+      backgroundController = null
+      val queue = state.value.playbackQueue
+      val startIndex =
+          queue.indexOfFirst { it.asPlaybackItem().id == mediaId }.takeIf { it >= 0 }
+              ?: return@launch
+      player.setMediaItems(
+          queue.map { item ->
+            MediaItem.Builder().setMediaId(item.id).setUri(item.documentUri).build()
+          },
+          startIndex,
+          positionMs,
+      )
+      player.prepare()
+      if (wasPlaying) player.play()
+      syncPlayerState()
+    }
+  }
+
+  private suspend fun buildBackgroundController(): MediaController {
+    val future =
+        MediaController.Builder(context, SessionToken(context, PlaybackService.component(context)))
+            .buildAsync()
+    return suspendCancellableCoroutine { continuation ->
+      future.addListener(
+          {
+            runCatching { future.get() }
+                .onSuccess { controller ->
+                  if (continuation.isActive) continuation.resume(controller)
+                  else controller.release()
+                }
+                .onFailure(continuation::resumeWithException)
+          },
+          context.mainExecutor,
+      )
+      continuation.invokeOnCancellation { future.cancel(true) }
     }
   }
 
@@ -532,6 +674,21 @@ constructor(
       else -> player.play()
     }
     syncPlayerState()
+  }
+
+  fun retryVideo() {
+    if (playerVideoId.value == null) return
+    player.prepare()
+    player.play()
+    syncPlayerState()
+  }
+
+  fun restartVideo() {
+    if (playerVideoId.value == null) return
+    player.seekTo(0L)
+    player.play()
+    syncPlayerState()
+    persistPosition()
   }
 
   fun seekTo(positionMs: Long) {
@@ -631,7 +788,9 @@ constructor(
     progressWrites.close()
     deleteRequests.close()
     progressWriteJob?.cancel()
+    ProcessLifecycleOwner.get().lifecycle.removeObserver(processLifecycleObserver)
     player.release()
+    backgroundController?.release()
     super.onCleared()
   }
 }
