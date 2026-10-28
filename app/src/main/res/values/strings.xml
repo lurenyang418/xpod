@@ -79,6 +79,7 @@
     <string name="add_subscription">Add a subscription</string>
     <string name="feed_url">HTTPS RSS feed URL</string>
     <string name="add_feed">Add feed</string>
+    <string name="add_feed_submitting">Adding feed</string>
     <string name="import_opml">Import OPML</string>
     <string name="export_opml">Export OPML</string>
     <string name="all">All</string>
@@ -93,6 +94,9 @@
     <string name="appearance">Appearance</string>
     <string name="theme">Theme</string>
     <string name="theme_system">Follow system</string>
+    <string name="theme_system_short">System</string>
+    <string name="theme_light_short">Light</string>
+    <string name="theme_dark_short">Dark</string>
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
     <string name="dynamic_color">Dynamic color</string>
@@ -272,7 +276,6 @@
     <string name="notes_export_failed">Could not export notes</string>
     <string name="notes_share_failed">Could not prepare the note for sharing</string>
     <string name="notes_backup">Local notes and backup</string>
-    <string name="notes_backup_summary">Notes are stored only on this device. Export a ZIP before clearing app data.</string>
     <string name="notes_backup_hint_title">Back up your local notes</string>
     <string name="notes_backup_hint_message">XPOD backup is disabled. You can export all notes as a ZIP from the Notes menu or Settings.</string>
     <string name="notes_backup_hint_action">Got it</string>
@@ -320,7 +323,6 @@
     <string name="navigation">Navigation</string>
     <string name="manage_tab_order">Manage tabs</string>
     <string name="tab_always_shown">Always shown</string>
-    <string name="add_subscription_summary">Add an HTTPS podcast or article feed</string>
     <string name="manage_connection">Manage connection</string>
     <string name="done">Done</string>
     <string name="all_tags">All tags</string>
@@ -446,11 +448,8 @@
     <string name="continue_video">Continue video</string>
     <string name="video_settings">Video playback</string>
     <string name="video_player_clock">Show clock in video player</string>
-    <string name="video_player_clock_summary">Show the current time while video controls are visible.</string>
     <string name="video_player_battery">Show battery in video player</string>
-    <string name="video_player_battery_summary">Show the battery percentage while video controls are visible.</string>
     <string name="video_background_playback">Allow video background playback</string>
-    <string name="video_background_playback_summary">Continue audio through the notification and lock screen when XPOD is in the background.</string>
     <string name="video_background_playback_failed">Could not start background video playback.</string>
     <string name="video_progress_compact">%1$d%%</string>
     <string name="restart_video">Restart video</string>
@@ -494,8 +493,12 @@
     <string name="reading_line_height">Line spacing</string>
     <string name="reading_theme">Reading theme</string>
     <string name="reading_theme_follow_app">Follow app theme</string>
+    <string name="reading_theme_follow_app_short">App</string>
+    <string name="reading_theme_light_short">Light</string>
     <string name="reading_theme_light">Light</string>
     <string name="reading_theme_sepia">Sepia</string>
+    <string name="reading_theme_sepia_short">Sepia</string>
+    <string name="reading_theme_dark_short">Dark</string>
     <string name="reading_theme_dark">Dark</string>
     <string name="chapter">Chapter</string>
     <string name="previous_chapter">Previous chapter</string>
