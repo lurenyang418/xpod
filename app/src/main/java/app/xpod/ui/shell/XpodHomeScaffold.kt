@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -42,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.xpod.R
 import app.xpod.data.EpisodeEntity
@@ -60,6 +62,7 @@ internal fun XpodHomeScaffold(
     fullPlayer: Boolean,
     selectedEpisode: EpisodeEntity?,
     selectedPodcastId: String?,
+    selectedPodcastTitle: String?,
     selectedPodcastUnplayedCount: Int,
     bulkActionBusy: Boolean,
     onRequestPodcastMarkAllPlayed: (String) -> Unit,
@@ -88,6 +91,7 @@ internal fun XpodHomeScaffold(
             fullPlayer = fullPlayer,
             selectedEpisode = selectedEpisode,
             selectedPodcastId = selectedPodcastId,
+            selectedPodcastTitle = selectedPodcastTitle,
             selectedPodcastUnplayedCount = selectedPodcastUnplayedCount,
             bulkActionBusy = bulkActionBusy,
             onRequestPodcastMarkAllPlayed = onRequestPodcastMarkAllPlayed,
@@ -139,7 +143,7 @@ internal fun XpodHomeScaffold(
 internal fun XpodSnackbarHost(snackbar: SnackbarHostState) {
   Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
     Box(Modifier.widthIn(max = 480.dp).padding(horizontal = 16.dp, vertical = 12.dp)) {
-      SnackbarHost(snackbar, Modifier.fillMaxWidth()) { data ->
+      SnackbarHost(snackbar, Modifier.wrapContentWidth()) { data ->
         val isError = (data.visuals as? XpodSnackbarVisuals)?.severity == StatusSeverity.Error
         val containerColor =
             if (isError) MaterialTheme.colorScheme.errorContainer
@@ -228,6 +232,7 @@ private fun HomeTopBar(
     fullPlayer: Boolean,
     selectedEpisode: EpisodeEntity?,
     selectedPodcastId: String?,
+    selectedPodcastTitle: String?,
     selectedPodcastUnplayedCount: Int,
     bulkActionBusy: Boolean,
     onRequestPodcastMarkAllPlayed: (String) -> Unit,
@@ -241,7 +246,11 @@ private fun HomeTopBar(
         Text(
             if (fullPlayer) stringResource(R.string.now_playing)
             else if (selectedEpisode != null) stringResource(R.string.episode)
+            else if (selectedPodcastId != null)
+                selectedPodcastTitle ?: stringResource(R.string.episodes)
             else stringResource(R.string.episodes),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
       },
       navigationIcon = {

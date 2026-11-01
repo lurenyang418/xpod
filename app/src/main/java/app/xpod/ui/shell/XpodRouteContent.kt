@@ -36,6 +36,7 @@ import app.xpod.ui.notes.NotesUiState
 import app.xpod.ui.notes.NotesViewModel
 import app.xpod.ui.player.FullPlayerScreen
 import app.xpod.ui.podcasts.EpisodeDetailScreen
+import app.xpod.ui.podcasts.PodcastEpisodesScreen
 import app.xpod.ui.podcasts.PodcastHubActions
 import app.xpod.ui.podcasts.PodcastHubScreen
 import app.xpod.ui.reader.ArticleReaderScreen
@@ -215,6 +216,14 @@ internal fun XpodRouteContent(
         BookReaderScreen(
             bookId = ui.selectedBookId,
             onBack = viewModel::navigateBack,
+        )
+    ui.destination == AppRoute.Podcasts && ui.selectedPodcastId != null && !ui.wide ->
+        PodcastEpisodesScreen(
+            episodes = ui.selectedPodcastEpisodes,
+            episodesLoading = ui.selectedPodcastEpisodesLoading,
+            nowPlaying = nowPlaying,
+            downloadStates = ui.downloadStates,
+            actions = podcastHubActions,
         )
     ui.destination == AppRoute.Podcasts ->
         PodcastHubScreen(

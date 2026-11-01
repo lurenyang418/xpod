@@ -20,6 +20,32 @@ import app.xpod.playback.NowPlaying
 import app.xpod.ui.navigation.PodcastSubView
 import app.xpod.ui.shell.MainUiState
 
+@Composable
+internal fun PodcastEpisodesScreen(
+    episodes: List<EpisodeEntity>,
+    episodesLoading: Boolean,
+    nowPlaying: NowPlaying?,
+    downloadStates: Map<String, DownloadState>,
+    actions: PodcastHubActions,
+) {
+  EpisodeList(
+      items = episodes,
+      play = actions.play,
+      download = actions.download,
+      requestRemoveFailedDownload = actions.requestRemoveFailedDownload,
+      favorite = actions.favorite,
+      played = actions.played,
+      nowPlaying = nowPlaying,
+      downloadStates = downloadStates,
+      openEpisode = actions.openEpisode,
+      togglePlayback = actions.togglePlayback,
+      addToQueue = actions.addToQueue,
+      modifier = Modifier.fillMaxSize(),
+      showTitle = false,
+      loading = episodesLoading,
+  )
+}
+
 internal data class PodcastHubActions(
     val openPodcast: (String) -> Unit,
     val refresh: (String) -> Unit,
@@ -54,14 +80,16 @@ internal fun PodcastHubScreen(
     episodesLoading: Boolean = false,
 ) {
   Column(Modifier.fillMaxSize().testTag("podcast_hub")) {
-    SecondaryTabRow(selectedTabIndex = PodcastSubView.entries.indexOf(subView)) {
-      PodcastSubView.entries.forEach { item ->
-        Tab(
-            selected = item == subView,
-            onClick = { onSubViewSelected(item) },
-            text = { Text(podcastSubViewLabel(item)) },
-            modifier = Modifier.testTag("podcast_subtab_${item.name}"),
-        )
+    if (wide || selectedPodcastId == null) {
+      SecondaryTabRow(selectedTabIndex = PodcastSubView.entries.indexOf(subView)) {
+        PodcastSubView.entries.forEach { item ->
+          Tab(
+              selected = item == subView,
+              onClick = { onSubViewSelected(item) },
+              text = { Text(podcastSubViewLabel(item)) },
+              modifier = Modifier.testTag("podcast_subtab_${item.name}"),
+          )
+        }
       }
     }
     Box(Modifier.fillMaxWidth().weight(1f)) {

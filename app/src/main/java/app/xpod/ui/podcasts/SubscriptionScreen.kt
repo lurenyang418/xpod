@@ -9,11 +9,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -59,6 +60,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.xpod.R
 import app.xpod.data.DownloadPhase
 import app.xpod.data.DownloadState
@@ -214,7 +216,7 @@ private fun PodcastList(
   ) {
     LazyColumn(
         Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
       item {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -237,26 +239,20 @@ private fun PodcastList(
         var menuExpanded by remember(podcast.id) { mutableStateOf(false) }
         Card(
             onClick = { select(podcast.id) },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 112.dp),
+            modifier = Modifier.fillMaxWidth(),
         ) {
           Row(
-              Modifier.fillMaxWidth().padding(16.dp),
+              Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
               verticalAlignment = Alignment.CenterVertically,
           ) {
-            Artwork(podcast.artworkUrl, null, Modifier.size(56.dp))
+            Artwork(podcast.artworkUrl, null, Modifier.size(28.dp))
             Column(
-                Modifier.weight(1f).padding(start = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                Modifier.weight(1f).padding(start = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
               Text(
-                  podcast.title,
-                  style = MaterialTheme.typography.titleMedium,
-                  maxLines = 2,
-                  overflow = TextOverflow.Ellipsis,
-              )
-              Text(
                   podcast.author.ifBlank { stringResource(R.string.unknown_author) },
-                  style = MaterialTheme.typography.bodyMedium,
+                  style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
                   maxLines = 1,
                   overflow = TextOverflow.Ellipsis,
               )
@@ -271,12 +267,19 @@ private fun PodcastList(
                   }
             }
             Box {
-              IconButton(onClick = { menuExpanded = true }) {
+              IconButton(
+                  onClick = { menuExpanded = true },
+                  modifier = Modifier.size(36.dp),
+              ) {
                 Icon(Icons.Filled.MoreVert, stringResource(R.string.subscription_actions))
               }
               DropdownMenu(
                   expanded = menuExpanded,
                   onDismissRequest = { menuExpanded = false },
+                  modifier = Modifier.widthIn(min = 200.dp, max = 240.dp),
+                  shape = RoundedCornerShape(16.dp),
+                  containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                  tonalElevation = 3.dp,
               ) {
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.refresh_feed)) },

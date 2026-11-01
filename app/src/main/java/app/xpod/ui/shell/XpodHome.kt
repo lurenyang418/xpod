@@ -557,6 +557,8 @@ internal fun XpodHome(
         video.playerVideoId != null -> "video-player"
         fullPlayer && nowPlaying != null -> "player"
         selectedEpisode != null -> "episode"
+        !wide && destination == AppRoute.Podcasts && selectedPodcastId != null ->
+            "podcast:$selectedPodcastId"
         selectedArticleId != null -> "article"
         selectedBookId != null -> "book"
         selectedNoteId != null -> "note:$selectedNoteId"
@@ -688,6 +690,10 @@ internal fun XpodHome(
       fullPlayer = fullPlayer,
       selectedEpisode = selectedEpisode,
       selectedPodcastId = selectedPodcastId,
+      selectedPodcastTitle =
+          selectedPodcastId
+              ?.let { id -> state.podcasts.firstOrNull { it.id == id }?.title }
+              ?.takeIf(String::isNotBlank),
       selectedPodcastUnplayedCount =
           selectedPodcastId?.let { state.unplayedEpisodeCounts[it] } ?: 0,
       bulkActionBusy = bulkActions.isBusy,
